@@ -1,0 +1,151 @@
+# MasterBuilder7 - Render Blueprint
+# n8n + Redis + PostgreSQL + Auto-scaling
+
+services:
+  # PostgreSQL
+  - type: postgres
+    name: mb7-postgres
+    plan: standard
+    ipAllowList: []
+
+  # Redis
+  - type: redis
+    name: mb7-redis
+    plan: standard
+    ipAllowList: []
+    maxmemoryPolicy: allkeys-lru
+
+  # n8n Workflow Engine
+  - type: web
+    name: mb7-n8n
+    plan: pro
+    runtime: docker
+    dockerfilePath: ./infrastructure/docker/n8n.Dockerfile
+    envVars:
+      - key: DB_TYPE
+        value: postgresdb
+      - key: DB_POSTGRESDB_HOST
+        fromDatabase:
+          name: mb7-postgres
+          property: host
+      - key: DB_POSTGRESDB_PORT
+        fromDatabase:
+          name: mb7-postgres
+          property: port
+      - key: DB_POSTGRESDB_DATABASE
+        fromDatabase:
+          name: mb7-postgres
+          property: database
+      - key: DB_POSTGRESDB_USER
+        fromDatabase:
+          name: mb7-postgres
+          property: user
+      - key: DB_POSTGRESDB_PASSWORD
+        fromDatabase:
+          name: mb7-postgres
+          property: password
+      - key: QUEUE_BULL_REDIS_HOST
+        fromService:
+          name: mb7-redis
+          type: redis
+          property: host
+      - key: QUEUE_BULL_REDIS_PORT
+        fromService:
+          name: mb7-redis
+          type: redis
+          property: port
+      - key: N8N_ENCRYPTION_KEY
+        generateValue: true
+      - key: N8N_BASIC_AUTH_ACTIVE
+        value: true
+      - key: N8N_BASIC_AUTH_USER
+        value: admin
+      - key: N8N_BASIC_AUTH_PASSWORD
+        generateValue: true
+      - key: WEBHOOK_URL
+        fromService:
+          name: mb7-n8n
+          type: web
+          property: url
+    healthCheckPath: /healthz
+    autoDeploy: true
+
+  # Dashboard
+  - type: web
+    name: mb7-dashboard
+    plan: standard
+    runtime: bun
+    buildCommand: cd dashboard && bun install
+    startCommand: cd dashboard && bun run server.ts
+    envVars:
+      - key: POSTGRES_URL
+        fromDatabase:
+          name: mb7-postgres
+          type: postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: mb7-redis
+          type: redis
+          property: connectionString
+      - key: PORT
+        value: 3000
+    healthCheckPath: /api/status
+    autoDeploy: true
+
+  # Auto-Scaler
+  - type: worker
+    name: mb7-auto-scaler
+    plan: standard
+    runtime: bun
+    buildCommand: bun install
+    startCommand: bun run infrastructure/monitoring/auto-scaler.ts
+    envVars:
+      - key: POSTGRES_URL
+        fromDatabase:
+          name: mb7-postgres
+          type: postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: mb7-redis
+          type: redis
+          property: connectionString
+      - key: MAX_AGENTS
+        value: 12
+      - key: MIN_AGENTS
+        value: 3
+    autoDeploy: true
+
+  # Cost Guardian
+  - type: worker
+    name: mb7-cost-guardian
+    plan: standard
+    runtime: bun
+    buildCommand: bun install
+    startCommand: bun run cost-tracking/guardian.ts
+    envVars:
+      - key: POSTGRES_URL
+        fromDatabase:
+          name: mb7-postgres
+          type: postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: mb7-redis
+          type: redis
+          property: connectionString
+      - key: BUDGET_LIMIT_USD
+        value: 100
+      - key: SLACK_WEBHOOK_URL
+        sync: false
+    autoDeploy: true
+
+# Environment variables for all services
+envVarGroups:
+  - name: mb7-common
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MB7_VERSION
+        value: 1.0.0

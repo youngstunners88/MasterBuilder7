@@ -1,0 +1,177 @@
+version: '3.8'
+
+# MasterBuilder7 Infrastructure Stack
+# n8n + Redis + PostgreSQL + Auto-scaling
+
+services:
+  # PostgreSQL for state persistence
+  postgres:
+    image: postgres:15-alpine
+    container_name: mb7-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mb7}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mb7_secure_2025}
+      POSTGRES_DB: ${POSTGRES_DB:-masterbuilder7}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mb7"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mb7-network
+
+  # Redis for hot state + pub/sub
+  redis:
+    image: redis:7-alpine
+    container_name: mb7-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - mb7-network
+
+  # n8n workflow engine
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: mb7-n8n
+    restart: unless-stopped
+    environment:
+      # Database
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=masterbuilder7
+      - DB_POSTGRESDB_USER=mb7
+      - DB_POSTGRESDB_PASSWORD=mb7_secure_2025
+      # Redis
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
+      # Security
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-mb7-encryption-key-2025}
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-elite2025}
+      # Webhook URL (update for production)
+      - WEBHOOK_URL=${WEBHOOK_URL:-https://n8n-kofi.zocomputer.io}
+      # Execution
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - NODE_ENV=production
+      # Auto-save
+      - N8N_SAVE_MANUAL_EXECUTIONS=true
+      - N8N_SAVE_ERROR_EXECUTIONS=true
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/workflows:ro
+    ports:
+      - "5678:5678"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - mb7-network
+
+  # Agent pool manager (auto-scaler)
+  agent-pool:
+    image: node:20-alpine
+    container_name: mb7-agent-pool
+    restart: unless-stopped
+    working_dir: /app
+    command: sh -c "npm install && npm start"
+    environment:
+      - NODE_ENV=production
+      - MAX_AGENTS=12
+      - MIN_AGENTS=3
+      - IDLE_TIMEOUT_MS=300000
+      - SCALE_UP_THRESHOLD=8
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://mb7:mb7_secure_2025@postgres:5432/masterbuilder7
+    volumes:
+      - ../..:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - mb7-network
+
+  # Cost monitor + kill switch
+  cost-guardian:
+    image: node:20-alpine
+    container_name: mb7-cost-guardian
+    restart: unless-stopped
+    working_dir: /app/cost-tracking
+    command: sh -c "npm install && npm start"
+    environment:
+      - NODE_ENV=production
+      - BUDGET_LIMIT_USD=100
+      - ALERT_THRESHOLD_1=50
+      - ALERT_THRESHOLD_2=80
+      - KILL_THRESHOLD=95
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://mb7:mb7_secure_2025@postgres:5432/masterbuilder7
+      - WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+    volumes:
+      - ../../cost-tracking:/app/cost-tracking
+      - ../../dashboard:/app/dashboard
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - mb7-network
+
+  # Dashboard
+  dashboard:
+    image: node:20-alpine
+    container_name: mb7-dashboard
+    restart: unless-stopped
+    working_dir: /app/dashboard
+    command: sh -c "npm install && npm start"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://mb7:mb7_secure_2025@postgres:5432/masterbuilder7
+      - N8N_URL=http://n8n:5678
+    volumes:
+      - ../../dashboard:/app/dashboard
+    ports:
+      - "3000:3000"
+    depends_on:
+      - redis
+      - postgres
+      - n8n
+    networks:
+      - mb7-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  n8n_data:
+    driver: local
+
+networks:
+  mb7-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
