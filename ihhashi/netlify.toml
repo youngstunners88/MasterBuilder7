@@ -1,0 +1,66 @@
+[build]
+  base = "frontend"
+  publish = "dist"
+  command = "npm run build"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NPM_FLAGS = "--legacy-peer-deps"
+  # Build-time environment variables
+  VITE_APP_ENV = "production"
+  VITE_APP_VERSION = "0.4.2"
+
+# API redirects - Proxy API requests to Railway backend
+# Update this URL to your actual Railway deployment URL
+[[redirects]]
+  from = "/api/*"
+  to = "https://ihhashi-api.up.railway.app/api/:splat"
+  status = 200
+  force = true
+
+# WebSocket support for real-time features
+[[redirects]]
+  from = "/ws/*"
+  to = "wss://ihhashi-api.up.railway.app/ws/:splat"
+  status = 200
+  force = true
+
+# SPA fallback - serve index.html for all routes
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Security headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https: wss:;"
+
+# Cache static assets
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Environment-specific configurations
+[context.production.environment]
+  VITE_APP_ENV = "production"
+
+[context.deploy-preview.environment]
+  VITE_APP_ENV = "staging"
+
+[context.branch-deploy.environment]
+  VITE_APP_ENV = "development"
+
+# Development context (local Netlify dev)
+[dev]
+  command = "npm run dev"
+  port = 5173
+  targetPort = 5173
+  publish = "dist"
+  autoLaunch = true

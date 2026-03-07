@@ -1,0 +1,23 @@
+{
+  "name": "elitesquad",
+  "version": "1.0.0",
+  "description": "8 Specialized Agents. One Shared Memory. Infinite Quality.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "dev": "bun run --watch connector.ts",
+    "test": "bun test",
+    "start": "bun run connector.ts status",
+    "deploy": "bun run connector.ts deploy",
+    "bridge:daemon": "bun run elite-bridge-daemon.ts",
+    "sweep": "bun /home/workspace/Skills/elite-sweep/scripts/sweep.ts audit .",
+    "monitor": "bun /home/workspace/Skills/bridge-monitor/scripts/monitor.ts check"
+  },
+  "dependencies": {
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  }
+}

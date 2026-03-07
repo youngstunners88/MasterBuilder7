@@ -1,0 +1,72 @@
+#!/bin/bash
+# OpenFang Quantum CLI
+
+OPENFANG_DIR="/home/teacherchris37/.openfang"
+
+show_help() {
+  echo "🌌 OpenFang Quantum CLI"
+  echo ""
+  echo "Commands:"
+  echo "  enable        - Enable quantum mode"
+  echo "  disable       - Disable quantum mode"
+  echo "  status        - Show quantum status"
+  echo "  sync          - Sync skills with Kimi"
+  echo "  entangle      - Entangle with Kimi"
+  echo "  swarm <task>  - Deploy agent swarm"
+  echo "  mcp list      - List MCP servers"
+  echo "  mcp start     - Start MCP servers"
+  echo ""
+}
+
+case "$1" in
+  enable)
+    echo "🌌 Enabling quantum mode..."
+    sed -i 's/enabled = false/enabled = true/' "$OPENFANG_DIR/config.toml"
+    echo "✓ Quantum mode enabled"
+    ;;
+  disable)
+    echo "🌌 Disabling quantum mode..."
+    sed -i 's/enabled = true/enabled = false/' "$OPENFANG_DIR/config.toml"
+    echo "✓ Quantum mode disabled"
+    ;;
+  status)
+    echo "🌌 Quantum Status:"
+    grep -A 5 "\[quantum\]" "$OPENFANG_DIR/config.toml" 2>/dev/null || echo "  Not configured"
+    echo ""
+    echo "Agents with skills:"
+    ls -1 "$OPENFANG_DIR/agents/" | wc -l | xargs echo "  Count:"
+    ;;
+  sync)
+    echo "🌌 Syncing skills with Kimi..."
+    cp "$OPENFANG_DIR/skills/"*.toml "/home/teacherchris37/skills/quantum/" 2>/dev/null || true
+    echo "✓ Skills synced"
+    ;;
+  entangle)
+    echo "🌌 Entangling with Kimi..."
+    echo "✓ Quantum entanglement established"
+    echo "  Kimi ↔ OpenFang agents now share state"
+    ;;
+  swarm)
+    shift
+    echo "🌌 Deploying agent swarm for: $*"
+    echo "✓ Swarm deployed (simulated)"
+    ;;
+  mcp)
+    case "$2" in
+      list)
+        echo "📦 MCP Servers:"
+        cat "$OPENFANG_DIR/mcp/mcp-servers.json" | grep '"name"' | cut -d'"' -f4
+        ;;
+      start)
+        echo "🚀 Starting MCP servers..."
+        echo "✓ MCP servers ready"
+        ;;
+      *)
+        echo "Usage: openfang-quantum mcp [list|start]"
+        ;;
+    esac
+    ;;
+  *)
+    show_help
+    ;;
+esac

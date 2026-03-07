@@ -1,0 +1,96 @@
+Build iHhashi - a South African food delivery web app.
+
+BRAND COLORS (use exactly):
+- Primary Gold: #FFD700 (buttons, highlights, prices)
+- Secondary Black: #1A1A1A (headers, text, primary buttons)
+- Background Gray: #F5F5F5
+- White: #FFFFFF (cards)
+
+FONT: Inter from Google Fonts
+
+PAGES TO BUILD:
+
+1. SPLASH SCREEN
+- Full screen gold (#FFD700) background
+- Center: Logo (yellow circle with black "H") + "iHhashi" in black
+- Below: "Food Delivery SA" in black
+- Three bouncing black dots loading
+- Auto-fades after 2 seconds to Home
+
+2. HOME PAGE (Mobile-first, max-width 512px centered)
+
+STICKY HEADER (Black #1A1A1A):
+- Left: Yellow square with "H" logo + "iHhashi" in white
+- Right: "Sign In" link in white
+- Below: White search bar with placeholder "Search food, groceries..."
+
+HERO BANNER (Gold background):
+- "Fast delivery in 30-45 mins" (bold black)
+- "Food, groceries, fruits delivered fresh"
+- Black button, gold text: "Start Shopping →"
+
+CATEGORIES (Horizontal scroll):
+- Food 🍔, Groceries 🛒, Fruits 🍎, Veggies 🥬, Dairy 🥛
+- Colored circle icons (70px), label below
+
+POPULAR MERCHANTS (Vertical cards):
+- Left: Placeholder image (colored rectangle)
+- Right: Name bold, category gray, gold star rating, delivery time, fee
+- White card with shadow
+
+FEATURED PRODUCTS (2-column grid):
+- Square image, product name, merchant, price in gold
+- "Add" button (black bg, gold text)
+
+BOTTOM NAV (Fixed, white):
+- Home (active/gold), Search, Cart, Profile
+
+3. PRODUCT CATALOG PAGE
+- Back arrow + Search header
+- Category filter chips
+- 2-column product grid (same cards as home)
+
+4. CART PAGE
+- Back arrow, "Cart" title
+- Cart items: image, name, +/- quantity, price
+- Summary: Subtotal, Delivery fee, Total
+- "Checkout" button (black, full width)
+
+5. AUTH PAGE
+- Gold header with logo
+- Phone number input
+- "Send OTP" button (black bg, gold text)
+- "Continue as Guest" link
+
+6. ORDERS PAGE
+- Tabs: Active, Past
+- Order cards: Merchant, items, status badge, total, "Track/Reorder" button
+
+7. PROFILE PAGE
+- Gold header with user avatar placeholder
+- Menu: My Orders, Addresses, Payment, Settings, Help, Logout (red)
+
+8. MERCHANT DASHBOARD
+- Stats: Orders, Revenue, Rating (3 cards)
+- Tabs: Orders, Menu, Analytics
+- Order list with Accept/Reject buttons (green/red)
+
+9. RIDER DASHBOARD  
+- Online toggle switch
+- Available deliveries list
+- "Accept" buttons
+- Earnings summary
+
+TECHNICAL:
+- Single HTML file
+- Tailwind CSS CDN
+- React or vanilla JS
+- Hash routing (#/home, #/cart, etc.)
+- All buttons clickable with navigation
+- Mobile responsive (touch-friendly)
+
+SAMPLE DATA:
+Merchants: KFC Rosebank (4.8★, 20-30min, R15), Fresh Market (4.6★, 30-45min, R20)
+Products: Chicken Bucket R149, Apples 1kg R35, Milk 2L R42
+
+Use placeholder images: https://placehold.co/200x120/FFD700/1A1A1A?text=KFC

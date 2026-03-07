@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- iHhashi Brand Colors: Black & Yellow -->
+    <color name="colorPrimary">#FFD700</color>
+    <color name="colorPrimaryDark">#1A1A1A</color>
+    <color name="colorAccent">#FFD700</color>
+    <color name="colorBackground">#1A1A1A</color>
+    <color name="colorSurface">#2A2A2A</color>
+    <color name="colorOnPrimary">#1A1A1A</color>
+    <color name="colorOnBackground">#FFFFFF</color>
+    <color name="colorOnSurface">#FFFFFF</color>
+    
+    <!-- Status Colors -->
+    <color name="colorSuccess">#4CAF50</color>
+    <color name="colorWarning">#FF9800</color>
+    <color name="colorError">#F44336</color>
+    <color name="colorInfo">#2196F3</color>
+</resources>

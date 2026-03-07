@@ -1,0 +1,20 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${WORKERS:-2}"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+[nixpacks]
+# Use Python 3.11
+pythonVersion = "3.11"
+
+[deploy.env]
+# Ensure Python output is not buffered
+PYTHONUNBUFFERED = "1"
+PYTHONDONTWRITEBYTECODE = "1"
+# Default workers - Railway will set this based on available CPUs
+WORKERS = "2"

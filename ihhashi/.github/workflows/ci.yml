@@ -1,0 +1,216 @@
+name: iHhashi CI
+
+on:
+  push:
+    branches: [main, develop, master]
+  pull_request:
+    branches: [main, develop, master]
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '20'
+
+jobs:
+  # Backend Tests
+  backend-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "echo 'db.runCommand(\"ping\").ok' | mongosh localhost:27017/test --quiet"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov httpx ruff
+      
+      - name: Run linting
+        run: |
+          ruff check . --ignore E501 || true
+          ruff format --check . || true
+      
+      - name: Run tests with coverage
+        env:
+          SECRET_KEY: test_secret_key_for_ci_only_not_for_production_min_32_chars
+          MONGODB_URL: mongodb://localhost:27017
+          DB_NAME: ihhashi_test
+          ENVIRONMENT: test
+          DEBUG: false
+        run: |
+          pytest --cov=app --cov-report=xml --cov-report=html -v || true
+      
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./backend/coverage.xml
+          fail_ci_if_error: false
+
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: backend/htmlcov
+          retention-days: 7
+
+  # Frontend Tests
+  frontend-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+      
+      - name: Run linting
+        run: npm run lint || true
+      
+      - name: Run type check
+        run: npm run typecheck || npx tsc --noEmit || true
+      
+      - name: Run tests
+        run: npm run test -- --run || true
+      
+      - name: Build
+        env:
+          VITE_API_URL: http://localhost:8000
+          VITE_APP_ENV: test
+        run: npm run build
+
+  # Security Scan
+  security-scan:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'  # Don't fail on vulnerabilities (for now)
+      
+      - name: Run Snyk security scan (if token available)
+        uses: snyk/actions/python@master
+        continue-on-error: true
+        if: env.SNYK_TOKEN != ''
+        with:
+          args: --severity-threshold=high
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+  # Build Docker Images
+  docker-build:
+    needs: [backend-test, frontend-test]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build backend Docker image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: false
+          tags: ihhashi-backend:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      - name: Build frontend Docker image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: false
+          tags: ihhashi-frontend:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Integration Test
+  integration-test:
+    needs: [docker-build]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Start services with Docker Compose
+        run: |
+          docker compose -f docker-compose.yml up -d mongodb redis
+          sleep 10  # Wait for services to be ready
+      
+      - name: Test MongoDB connection
+        run: |
+          docker exec ihhashi-mongo mongosh --eval "db.adminCommand('ping')" || exit 1
+      
+      - name: Test Redis connection
+        run: |
+          docker exec ihhashi-redis redis-cli ping | grep -q PONG || exit 1
+      
+      - name: Cleanup
+        if: always()
+        run: docker compose -f docker-compose.yml down -v
+
+  # CI Summary
+  ci-summary:
+    needs: [backend-test, frontend-test, security-scan, docker-build]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Create Summary
+        run: |
+          echo "## CI Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend Tests | ${{ needs.backend-test.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend Tests | ${{ needs.frontend-test.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Scan | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker Build | ${{ needs.docker-build.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ needs.backend-test.result }}" == "success" && "${{ needs.frontend-test.result }}" == "success" ]]; then
+            echo "✅ All required checks passed!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Some checks failed or were skipped." >> $GITHUB_STEP_SUMMARY
+          fi

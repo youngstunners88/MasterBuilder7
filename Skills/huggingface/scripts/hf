@@ -1,0 +1,30 @@
+#!/bin/bash
+# HuggingFace CLI wrapper
+# Usage: hf <command> [args]
+
+case "$1" in
+    model)
+        shift
+        python3 /home/workspace/Skills/huggingface/scripts/hf_download.py model "$@"
+        ;;
+    dataset)
+        shift
+        python3 /home/workspace/Skills/huggingface/scripts/hf_download.py dataset "$@"
+        ;;
+    list)
+        shift
+        python3 /home/workspace/Skills/huggingface/scripts/hf_download.py list "$@"
+        ;;
+    search)
+        python3 /home/workspace/Skills/huggingface/scripts/hf_download.py list --query "$2" --limit 10
+        ;;
+    *)
+        echo "HuggingFace CLI"
+        echo ""
+        echo "Commands:"
+        echo "  model <id>           Download a model"
+        echo "  dataset <name>       Download a dataset"
+        echo "  list [--query <q>]   List popular models"
+        echo "  search <query>       Search models"
+        ;;
+esac

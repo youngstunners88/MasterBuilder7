@@ -1,0 +1,74 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "name": "ihhashi",
+  "builds": [
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "https://api.ihhashi.co.za/api/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/frontend/$1"
+    }
+  ],
+  "env": {
+    "VITE_API_URL": "https://api.ihhashi.co.za/api/v1",
+    "VITE_APP_ENV": "production"
+  },
+  "build": {
+    "env": {
+      "VITE_API_URL": "https://api.ihhashi.co.za/api/v1",
+      "VITE_SUPABASE_URL": "@supabase_url",
+      "VITE_SUPABASE_ANON_KEY": "@supabase_anon_key",
+      "VITE_POSTHOG_KEY": "@posthog_key",
+      "VITE_GOOGLE_MAPS_API_KEY": "@google_maps_key",
+      "VITE_PAYSTACK_PUBLIC_KEY": "@paystack_public_key",
+      "VITE_SENTRY_DSN": "@sentry_dsn"
+    }
+  },
+  "functions": {
+    "frontend/**": {
+      "memory": 1024,
+      "maxDuration": 10
+    }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "geolocation=(*), camera=(), microphone=()"
+        }
+      ]
+    }
+  ],
+  "regions": ["gru1"],
+  "framework": "vite"
+}

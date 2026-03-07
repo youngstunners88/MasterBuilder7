@@ -1,0 +1,136 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #FAFAFA;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D4D4D4;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #A3A3A3;
+}
+
+/* Hide scrollbar utility */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Custom component styles */
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl p-4 shadow-card hover:shadow-card-hover transition-shadow;
+  }
+
+  .btn-primary {
+    @apply bg-secondary-600 text-primary font-semibold px-4 py-2.5 rounded-xl 
+           hover:bg-secondary-700 active:scale-[0.98] transition-all;
+  }
+
+  .btn-secondary {
+    @apply bg-primary text-secondary-600 font-semibold px-4 py-2.5 rounded-xl 
+           hover:bg-primary-400 active:scale-[0.98] transition-all;
+  }
+
+  .btn-outline {
+    @apply border-2 border-secondary-600 text-secondary-600 font-semibold px-4 py-2.5 rounded-xl 
+           hover:bg-secondary-600 hover:text-primary active:scale-[0.98] transition-all;
+  }
+
+  .input {
+    @apply w-full px-4 py-2.5 rounded-xl border border-gray-200 
+           focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent
+           placeholder:text-gray-400 text-secondary-600 transition-all;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-primary {
+    @apply bg-primary-100 text-secondary-600;
+  }
+
+  .badge-success {
+    @apply bg-green-100 text-green-700;
+  }
+
+  .badge-warning {
+    @apply bg-yellow-100 text-yellow-700;
+  }
+
+  .badge-error {
+    @apply bg-red-100 text-red-700;
+  }
+}
+
+/* Animations */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 1.5s infinite;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+}
+
+/* Safe area insets for PWA */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* Focus visible for accessibility */
+:focus-visible {
+  outline: 2px solid #FFD700;
+  outline-offset: 2px;
+}
+
+/* Selection color */
+::selection {
+  background-color: rgba(255, 215, 0, 0.3);
+  color: #1A1A1A;
+}

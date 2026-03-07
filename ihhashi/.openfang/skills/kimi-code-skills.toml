@@ -1,0 +1,186 @@
+# Kimi Code Skills - Multiplied to OpenFang
+# All Kimi abilities now available to OpenFang agents
+
+[skill.code_analysis]
+name = "Code Analysis"
+description = "Deep code understanding, refactoring, optimization"
+capabilities = [
+  "read_file",
+  "write_file",
+  "str_replace",
+  "glob",
+  "grep",
+  "shell"
+]
+patterns = [
+  "Analyze codebase structure",
+  "Find bugs and issues",
+  "Suggest optimizations",
+  "Generate documentation"
+]
+quantum_mode = true
+entangled_with = ["coder", "debugger", "code-reviewer"]
+
+[skill.web_development]
+name = "Web Development"
+description = "Full-stack web development (React, FastAPI, Node)"
+capabilities = [
+  "frontend_react",
+  "backend_fastapi",
+  "database_mongodb",
+  "api_design",
+  "deployment"
+]
+patterns = [
+  "Build React components",
+  "Create FastAPI endpoints",
+  "Design MongoDB schemas",
+  "Deploy to Netlify/Railway"
+]
+quantum_mode = true
+entangled_with = ["architect", "devops-lead", "coder"]
+
+[skill.system_admin]
+name = "System Administration"
+description = "Linux system management, Docker, networking"
+capabilities = [
+  "shell_exec",
+  "docker_manage",
+  "network_config",
+  "service_deploy",
+  "log_analysis"
+]
+patterns = [
+  "Manage Docker containers",
+  "Configure networking",
+  "Deploy services",
+  "Monitor systems"
+]
+quantum_mode = true
+entangled_with = ["ops", "devops-lead"]
+
+[skill.security_audit]
+name = "Security Auditing"
+description = "Security analysis, vulnerability detection, hardening"
+capabilities = [
+  "vulnerability_scan",
+  "dependency_check",
+  "code_review_security",
+  "penetration_testing"
+]
+patterns = [
+  "Scan for vulnerabilities",
+  "Review code for security issues",
+  "Check dependencies",
+  "Suggest hardening measures"
+]
+quantum_mode = true
+entangled_with = ["security-auditor"]
+
+[skill.data_analysis]
+name = "Data Analysis"
+description = "Data processing, visualization, ML basics"
+capabilities = [
+  "data_processing",
+  "visualization",
+  "statistical_analysis",
+  "ml_modeling"
+]
+patterns = [
+  "Process datasets",
+  "Create visualizations",
+  "Run statistical tests",
+  "Build simple ML models"
+]
+quantum_mode = true
+entangled_with = ["analyst", "data-scientist"]
+
+[skill.research]
+name = "Research"
+description = "Web search, information gathering, fact-checking"
+capabilities = [
+  "web_search",
+  "url_fetch",
+  "information_synthesis",
+  "citation_management"
+]
+patterns = [
+  "Search for information",
+  "Fetch and analyze web content",
+  "Synthesize research",
+  "Verify facts"
+]
+quantum_mode = true
+entangled_with = ["researcher"]
+
+[skill.writing]
+name = "Technical Writing"
+description = "Documentation, reports, content creation"
+capabilities = [
+  "documentation",
+  "report_generation",
+  "content_creation",
+  "editing"
+]
+patterns = [
+  "Write technical docs",
+  "Generate reports",
+  "Create blog posts",
+  "Edit and proofread"
+]
+quantum_mode = true
+entangled_with = ["writer", "doc-writer"]
+
+[skill.testing]
+name = "Testing & QA"
+description = "Test design, automated testing, quality assurance"
+capabilities = [
+  "unit_testing",
+  "integration_testing",
+  "e2e_testing",
+  "test_automation"
+]
+patterns = [
+  "Write unit tests",
+  "Create integration tests",
+  "Set up E2E testing",
+  "Automate test suites"
+]
+quantum_mode = true
+entangled_with = ["test-engineer"]
+
+[skill.project_management]
+name = "Project Management"
+description = "Task tracking, planning, coordination"
+capabilities = [
+  "task_planning",
+  "progress_tracking",
+  "resource_coordination",
+  "timeline_management"
+]
+patterns = [
+  "Create project plans",
+  "Track progress",
+  "Coordinate resources",
+  "Manage timelines"
+]
+quantum_mode = true
+entangled_with = ["planner", "orchestrator"]
+
+[skill.communication]
+name = "Communication"
+description = "Email, chat, customer support, documentation"
+capabilities = [
+  "email_drafting",
+  "chat_support",
+  "customer_service",
+  "meeting_notes"
+]
+patterns = [
+  "Draft professional emails",
+  "Handle support requests",
+  "Take meeting notes",
+  "Manage communications"
+]
+quantum_mode = true
+entangled_with = ["email-assistant", "customer-support", "meeting-assistant"]

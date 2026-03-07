@@ -1,0 +1,274 @@
+# ============================================================
+# iHhashi Production Docker Compose
+# ============================================================
+# Usage:
+#   docker-compose -f deployment/docker-compose.prod.yml up -d
+#
+# Prerequisites:
+#   - .env file with production values
+#   - SSL certificates configured
+#   - MongoDB backups configured
+# ============================================================
+
+version: '3.8'
+
+services:
+  # ============================================
+  # MongoDB Database
+  # ============================================
+  mongodb:
+    image: mongo:7.0
+    container_name: ihhashi-mongo-prod
+    restart: always
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+      - ./deployment/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-ihhashi}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?MONGO_PASSWORD required}
+      MONGO_INITDB_DATABASE: ihhashi
+    command: mongod --auth --wiredTigerCacheSizeGB 1.5
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks:
+      - ihhashi-internal
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # ============================================
+  # Redis Cache
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: ihhashi-redis-prod
+    restart: always
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required}
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - ihhashi-internal
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # ============================================
+  # Backend API
+  # ============================================
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+      args:
+        - ENVIRONMENT=production
+    image: ihhashi-backend:latest
+    container_name: ihhashi-backend-prod
+    restart: always
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - MONGODB_URL=mongodb://${MONGO_USERNAME:-ihhashi}:${MONGO_PASSWORD}@mongodb:27017/${DB_NAME:-ihhashi}?authSource=admin
+      - DB_NAME=${DB_NAME:-ihhashi}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY required}
+      - CORS_ORIGINS=${CORS_ORIGINS:-https://ihhashi.co.za,https://www.ihhashi.co.za}
+      - GLITCHTIP_DSN=${GLITCHTIP_DSN:-}
+      - POSTHOG_API_KEY=${POSTHOG_API_KEY:-}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+      - PAYSTACK_SECRET_KEY=${PAYSTACK_SECRET_KEY:-}
+      - PAYSTACK_PUBLIC_KEY=${PAYSTACK_PUBLIC_KEY:-}
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY:-}
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:-}
+      - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY:-}
+      - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL:-}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+    volumes:
+      - backend_uploads:/app/uploads
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ihhashi-internal
+      - ihhashi-external
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ============================================
+  # Frontend (Nginx)
+  # ============================================
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL:-https://api.ihhashi.co.za/api/v1}
+        - VITE_SUPABASE_URL=${SUPABASE_URL:-}
+        - VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-}
+        - VITE_POSTHOG_KEY=${POSTHOG_API_KEY:-}
+        - VITE_GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY:-}
+        - VITE_PAYSTACK_PUBLIC_KEY=${PAYSTACK_PUBLIC_KEY:-}
+    image: ihhashi-frontend:latest
+    container_name: ihhashi-frontend-prod
+    restart: always
+    ports:
+      - "127.0.0.1:3000:80"
+    depends_on:
+      - backend
+    networks:
+      - ihhashi-external
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # ============================================
+  # Nginx Reverse Proxy (SSL Termination)
+  # ============================================
+  nginx:
+    image: nginx:alpine
+    container_name: ihhashi-nginx-prod
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+      - certbot_data:/etc/letsencrypt:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - ihhashi-external
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ============================================
+  # Certbot (Let's Encrypt SSL)
+  # ============================================
+  certbot:
+    image: certbot/certbot:latest
+    container_name: ihhashi-certbot
+    volumes:
+      - certbot_data:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    networks:
+      - ihhashi-external
+
+  # ============================================
+  # MongoDB Backup
+  # ============================================
+  mongodb-backup:
+    image: mongo:7.0
+    container_name: ihhashi-mongo-backup
+    restart: always
+    volumes:
+      - mongodb_backups:/backups
+    environment:
+      - MONGODB_URI=mongodb://${MONGO_USERNAME:-ihhashi}:${MONGO_PASSWORD}@mongodb:27017/${DB_NAME:-ihhashi}?authSource=admin
+    entrypoint: >
+      sh -c 'while true; do
+        mongodump --uri="$$MONGODB_URI" --archive=/backups/backup-$$(date +%Y%m%d-%H%M%S).archive;
+        find /backups -name "*.archive" -mtime +7 -delete;
+        sleep 86400;
+      done'
+    depends_on:
+      - mongodb
+    networks:
+      - ihhashi-internal
+
+  # ============================================
+  # GlitchTip (Error Tracking) - Optional
+  # ============================================
+  # Uncomment to self-host GlitchTip
+  # glitchtip:
+  #   image: glitchtip/glitchtip:latest
+  #   container_name: ihhashi-glitchtip
+  #   restart: always
+  #   ports:
+  #     - "127.0.0.1:8001:8000"
+  #   environment:
+  #     - DATABASE_URL=postgres://...
+  #     - SECRET_KEY=${GLITCHTIP_SECRET_KEY:-}
+  #   networks:
+  #     - ihhashi-internal
+
+volumes:
+  mongodb_data:
+    driver: local
+  mongodb_config:
+    driver: local
+  mongodb_backups:
+    driver: local
+  redis_data:
+    driver: local
+  backend_uploads:
+    driver: local
+  nginx_logs:
+    driver: local
+  certbot_data:
+    driver: local
+  certbot_www:
+    driver: local
+
+networks:
+  ihhashi-internal:
+    driver: bridge
+    internal: true
+  ihhashi-external:
+    driver: bridge

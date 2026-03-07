@@ -1,0 +1,162 @@
+# Render Blueprint for iHhashi Backend
+# https://render.com/docs/blueprint-spec
+
+services:
+  # ============================================
+  # Backend API Service
+  # ============================================
+  - type: web
+    name: ihhashi-api
+    runtime: python
+    region: oregon
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: MONGODB_URL
+        fromDatabase:
+          name: ihhashi-mongodb
+          property: connectionString
+      - key: DB_NAME
+        value: ihhashi
+      - key: REDIS_URL
+        fromService:
+          name: ihhashi-redis
+          type: pserv
+          property: connection
+      - key: SECRET_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: "https://ihhashi.co.za,https://www.ihhashi.co.za,https://app.ihhashi.co.za"
+      - key: GLITCHTIP_DSN
+        sync: false
+      - key: POSTHOG_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_PUBLIC_KEY
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+    numInstances: 2
+    disk:
+      name: uploads
+      mountPath: /app/uploads
+      sizeGB: 5
+
+  # ============================================
+  # Background Worker for Scheduled Tasks
+  # ============================================
+  - type: worker
+    name: ihhashi-worker
+    runtime: python
+    region: oregon
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.services.payout_scheduler
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: MONGODB_URL
+        fromDatabase:
+          name: ihhashi-mongodb
+          property: connectionString
+      - key: DB_NAME
+        value: ihhashi
+      - key: REDIS_URL
+        fromService:
+          name: ihhashi-redis
+          type: pserv
+          property: connection
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+    numInstances: 1
+
+  # ============================================
+  # Redis Cache Service
+  # ============================================
+  - type: pserv
+    name: ihhashi-redis
+    runtime: docker
+    region: oregon
+    plan: starter
+    numInstances: 1
+    disk:
+      name: redis-data
+      mountPath: /data
+      sizeGB: 1
+
+# ============================================
+# Databases
+# ============================================
+databases:
+  - name: ihhashi-mongodb
+    databaseName: ihhashi
+    region: oregon
+    plan: starter
+    user: ihhashi
+    mongodbVersion: "7.0"
+
+# ============================================
+# Scheduled Jobs
+# ============================================
+  # Weekly Payout Processing - Every Sunday at 11:11 AM SAST (09:11 UTC)
+  - type: cron
+    name: weekly-payouts
+    runtime: python
+    region: oregon
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    schedule: "11 9 * * 0"  # Every Sunday at 09:11 UTC (11:11 AM SAST)
+    command: python -m app.services.payout_scheduler --run-now
+    envVars:
+      - key: MONGODB_URL
+        fromDatabase:
+          name: ihhashi-mongodb
+          property: connectionString
+      - key: DB_NAME
+        value: ihhashi
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+
+  # Daily Cleanup - Remove expired sessions, old logs
+  - type: cron
+    name: daily-cleanup
+    runtime: python
+    region: oregon
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    schedule: "0 3 * * *"  # Daily at 03:00 UTC
+    command: python -m scripts.cleanup
+    envVars:
+      - key: MONGODB_URL
+        fromDatabase:
+          name: ihhashi-mongodb
+          property: connectionString
+      - key: DB_NAME
+        value: ihhashi

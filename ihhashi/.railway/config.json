@@ -1,0 +1,16 @@
+{
+  "projects": {
+    "/home/teacherchris37/backend": {
+      "projectPath": "/home/teacherchris37/backend",
+      "name": "chic-serenity",
+      "project": "5df7a702-b2e4-4246-b917-6ac2277c1920",
+      "environment": "ce768760-1efa-4d11-ac89-8b998fbbf10b",
+      "environmentName": "production",
+      "service": "6e43d81b-cb5f-4e89-8b62-887004ccda68"
+    }
+  },
+  "user": {
+    "token": "rw_Fe26.2**246aa60f046fad65ee7a9146cc8a03347a4bec2c23f0b368e91c879e01828459*8-oYWePwrPUUihvosrHdQw*N05-l3ka0XLUdx5q9jV95O_0jSFkSPfu5Hfn1lLGuSWaT14xl-FRVXfxl_u4IWaUEhD6_DQ9dQXyJnTYi-bWNQ*1775265140792*793e128107aab04411d3fd83b695b39eba2f7df3ecc4679b88492e11b3e4b568*gzphDH0BmOGrJ_SAFAobZoGHHxksS0u23a8u2xz9d_U"
+  },
+  "linkedFunctions": null
+}

@@ -1,0 +1,209 @@
+{
+  "mcpServers": {
+    "quantum-core": {
+      "name": "Quantum Core MCP",
+      "description": "Core quantum skill orchestration",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-quantum"],
+      "env": {
+        "QUANTUM_MODE": "entangled",
+        "AGENT_SYNC": "true"
+      }
+    },
+    "github": {
+      "name": "GitHub MCP",
+      "description": "Official GitHub MCP server",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      }
+    },
+    "slack": {
+      "name": "Slack MCP",
+      "description": "Slack workspace integration",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-slack"],
+      "env": {
+        "SLACK_BOT_TOKEN": "${SLACK_BOT_TOKEN}",
+        "SLACK_TEAM_ID": "${SLACK_TEAM_ID}"
+      }
+    },
+    "filesystem": {
+      "name": "Filesystem MCP",
+      "description": "Secure file system access",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/teacherchris37"]
+    },
+    "postgres": {
+      "name": "PostgreSQL MCP",
+      "description": "Database operations",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "${DATABASE_URL}"]
+    },
+    "supabase": {
+      "name": "Supabase MCP",
+      "description": "Supabase integration",
+      "command": "npx",
+      "args": ["-y", "@thorgrimr/supabase-mcp-server"],
+      "env": {
+        "SUPABASE_URL": "${SUPABASE_URL}",
+        "SUPABASE_SERVICE_ROLE_KEY": "${SUPABASE_SERVICE_ROLE_KEY}"
+      }
+    },
+    "playwright": {
+      "name": "Playwright MCP",
+      "description": "Browser automation & E2E testing",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-playwright"]
+    },
+    "puppeteer": {
+      "name": "Puppeteer MCP",
+      "description": "Web scraping & browser control",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-puppeteer"]
+    },
+    "brave-search": {
+      "name": "Brave Search MCP",
+      "description": "Web search capabilities",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+      }
+    },
+    "fetch": {
+      "name": "Fetch MCP",
+      "description": "HTTP requests & API calls",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-fetch"]
+    },
+    "sequential-thinking": {
+      "name": "Sequential Thinking",
+      "description": "Dynamic problem solving",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    },
+    "xcodebuild": {
+      "name": "Xcode Build MCP",
+      "description": "iOS/macOS native building",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-xcodebuild"],
+      "env": {
+        "DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer"
+      }
+    },
+    "vercel": {
+      "name": "Vercel MCP",
+      "description": "Vercel deployment automation",
+      "command": "npx",
+      "args": ["-y", "@vercel/mcp-server"],
+      "env": {
+        "VERCEL_TOKEN": "${VERCEL_TOKEN}"
+      }
+    },
+    "notion": {
+      "name": "Notion MCP",
+      "description": "Notion workspace integration",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-notion"],
+      "env": {
+        "NOTION_API_TOKEN": "${NOTION_API_TOKEN}"
+      }
+    },
+    "stripe": {
+      "name": "Stripe MCP",
+      "description": "Payment processing automation",
+      "command": "npx",
+      "args": ["-y", "@stripe/mcp-server"],
+      "env": {
+        "STRIPE_SECRET_KEY": "${STRIPE_SECRET_KEY}"
+      }
+    },
+    "figma": {
+      "name": "Figma MCP",
+      "description": "Design system integration",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-figma"],
+      "env": {
+        "FIGMA_ACCESS_TOKEN": "${FIGMA_ACCESS_TOKEN}"
+      }
+    },
+    "aws": {
+      "name": "AWS MCP",
+      "description": "AWS cloud operations",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-aws"],
+      "env": {
+        "AWS_ACCESS_KEY_ID": "${AWS_ACCESS_KEY_ID}",
+        "AWS_SECRET_ACCESS_KEY": "${AWS_SECRET_ACCESS_KEY}",
+        "AWS_REGION": "af-south-1"
+      }
+    },
+    "redis": {
+      "name": "Redis MCP",
+      "description": "Redis cache operations",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-redis", "redis://localhost:6379"]
+    },
+    "sqlite": {
+      "name": "SQLite MCP",
+      "description": "SQLite database operations",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sqlite", "/home/teacherchris37/data.db"]
+    },
+    "google-maps": {
+      "name": "Google Maps MCP",
+      "description": "Location & routing services",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-google-maps"],
+      "env": {
+        "GOOGLE_MAPS_API_KEY": "${GOOGLE_MAPS_API_KEY}"
+      }
+    },
+    "google-calendar": {
+      "name": "Google Calendar MCP",
+      "description": "Calendar management",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-gcalendar"],
+      "env": {
+        "GOOGLE_CLIENT_ID": "${GOOGLE_CLIENT_ID}",
+        "GOOGLE_CLIENT_SECRET": "${GOOGLE_CLIENT_SECRET}"
+      }
+    },
+    "gmail": {
+      "name": "Gmail MCP",
+      "description": "Email automation",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-gmail"],
+      "env": {
+        "GMAIL_CREDENTIALS": "${GMAIL_CREDENTIALS}"
+      }
+    },
+    "jupyter": {
+      "name": "Jupyter MCP",
+      "description": "Data science notebooks",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-jupyter"]
+    },
+    "qdrant": {
+      "name": "Qdrant MCP",
+      "description": "Vector database for RAG",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-qdrant"],
+      "env": {
+        "QDRANT_URL": "${QDRANT_URL}",
+        "QDRANT_API_KEY": "${QDRANT_API_KEY}"
+      }
+    },
+    "obsidian": {
+      "name": "Obsidian MCP",
+      "description": "Knowledge base integration",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-obsidian"],
+      "env": {
+        "OBSIDIAN_VAULT_PATH": "/home/teacherchris37/vault"
+      }
+    }
+  }
+}

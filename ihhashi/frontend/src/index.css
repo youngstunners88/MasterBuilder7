@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* iHhashi Brand Colors - Black & Yellow */
+  --primary: #FFD700;
+  --primary-dark: #D4AF37;
+  --secondary: #1A1A1A;
+  --background: #FAFAFA;
+  --surface: #FFFFFF;
+  --text: #1A1A1A;
+  --text-secondary: #666666;
+  --border: #E5E5E5;
+  
+  /* Semantic Colors */
+  --success: #22C55E;
+  --warning: #F59E0B;
+  --error: #EF4444;
+  --info: #3B82F6;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--background);
+  color: var(--text);
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer components {
+  /* Buttons */
+  .btn-primary {
+    @apply bg-secondary text-primary font-semibold py-3 px-6 rounded-xl transition-all 
+           hover:bg-secondary-700 active:scale-[0.98];
+  }
+  
+  .btn-secondary {
+    @apply bg-primary text-secondary font-semibold py-3 px-6 rounded-xl transition-all 
+           hover:bg-primary-400 active:scale-[0.98];
+  }
+  
+  .btn-outline {
+    @apply border-2 border-secondary text-secondary font-semibold py-3 px-6 rounded-xl transition-all 
+           hover:bg-secondary hover:text-primary active:scale-[0.98];
+  }
+  
+  /* Inputs */
+  .input {
+    @apply w-full border border-gray-200 rounded-xl px-4 py-3 text-base 
+           focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all
+           placeholder:text-gray-400;
+  }
+  
+  /* Cards */
+  .card {
+    @apply bg-white rounded-2xl p-4 shadow-card border border-gray-100 
+           hover:shadow-card-hover transition-shadow;
+  }
+  
+  /* Badges */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium;
+  }
+  
+  .badge-primary {
+    @apply bg-primary-100 text-secondary;
+  }
+  
+  .badge-success {
+    @apply bg-green-100 text-green-700;
+  }
+  
+  .badge-warning {
+    @apply bg-yellow-100 text-yellow-700;
+  }
+  
+  .badge-error {
+    @apply bg-red-100 text-red-700;
+  }
+}
+
+/* Hide scrollbar utility */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Safe area insets for PWA */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Focus visible for accessibility */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Selection color */
+::selection {
+  background-color: rgba(255, 215, 0, 0.3);
+  color: var(--secondary);
+}

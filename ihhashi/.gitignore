@@ -1,0 +1,117 @@
+# Build artifacts
+*.apk
+*.aab
+*.idsig
+*.ipa
+
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.venv/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.obsidian/
+
+# Environment files - NEVER commit secrets!
+.env
+.env.local
+.env.development
+.env.production
+.env.*.local
+*.env
+
+# Secrets and credentials - NEVER commit these!
+*.pem
+*.key
+*.keystore
+secrets/
+credentials/
+firebase-*.json
+*-service-account.json
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+.next/
+out/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+*.bak
+
+# Docker
+.docker/
+
+# Test coverage
+coverage/
+.coverage
+htmlcov/
+.pytest_cache/
+.nyc_output/
+
+# TypeScript
+tsconfig.tsbuildinfo
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Android
+*.iml
+.gradle
+local.properties
+android/app/build/
+android/build/
+frontend/android/app/build/
+frontend/android/build/
+
+# iOS
+*.xcworkspace
+*.xcuserdata
+Pods/
+
+# Local Netlify folder
+.netlify
+
+# Private AI Skills - NEVER COMMIT
+.kimi/
+.kimi/skills/
+
+# Environment files
+.env.local
+.env.*.local
+
+# Cache directories
+.npm/
+.cache/
+.config/
+.local/
+
+# OpenFang data
+.openfang/data/
+
+# Shell history
+.bash_history
+.zsh_history
+.git-credentials
