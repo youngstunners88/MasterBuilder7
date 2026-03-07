@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "masterbuilder7": {
+      "command": "/home/teacherchris37/MasterBuilder7/.venv/bin/python",
+      "args": [
+        "/home/teacherchris37/MasterBuilder7/mcp_server.py"
+      ],
+      "env": {
+        "PYTHONPATH": "/home/teacherchris37/MasterBuilder7",
+        "APEX_YOLO_MODE": "true",
+        "APEX_SAFETY_THRESHOLD": "0.6",
+        "APEX_MAX_AGENTS": "64"
+      },
+      "description": "MasterBuilder7 Agent Layer MCP Server",
+      "timeout": 300
+    }
+  }
+}
