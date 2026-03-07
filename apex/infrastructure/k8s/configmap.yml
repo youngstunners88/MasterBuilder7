@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apex-config
+  namespace: apex-fleet
+data:
+  NODE_ENV: "production"
+  MAX_AGENTS: "64"
+  DAILY_BUDGET: "500"
+  AUTO_KILL_ON_EXCEED: "true"
+  CONSENSUS_THRESHOLD: "0.80"
+  CHECKPOINT_INTERVAL: "300"
+  REQUIRED_VERIFICATIONS: "3"
+  MAX_RETRIES: "3"
+  LOG_LEVEL: "info"
+  METRICS_ENABLED: "true"
+  TRACING_ENABLED: "true"

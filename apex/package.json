@@ -1,0 +1,17 @@
+{
+  "name": "apex-fleet",
+  "version": "1.0.0",
+  "description": "333-Agent Autonomous Workforce for APEX/MasterBuilder7",
+  "scripts": {
+    "start": "bun run launcher.ts",
+    "fleet:spawn": "bun run fleet-manager.ts spawn",
+    "fleet:status": "bun run fleet-manager.ts status",
+    "fleet:stop": "bun run fleet-manager.ts stop",
+    "dashboard": "bun run dashboard.ts",
+    "agent": "bun run agent-worker.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

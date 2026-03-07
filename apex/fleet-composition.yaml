@@ -1,0 +1,225 @@
+# APEX Fleet - CORRECTED Composition
+# 64 specialized agents (not 333 generic workers)
+# Cost: ~$32/hour during builds, ~$3/hour idle
+
+metadata:
+  name: apex-fleet-v2
+  version: "2.0.0"
+  max_daily_budget: 500  # USD
+  auto_kill_on_exceed: true
+  hard_limit: 500
+
+core_apex:
+  # META ROUTER - Stack detection & routing
+  meta_router:
+    count: 3
+    skills:
+      - repo_analysis
+      - stack_detection
+      - routing_logic
+      - hygiene_check
+    model: kimi-k2-5
+    autonomy_level: 2
+    cost_per_hour: 0.50
+    
+  # PLANNING - Architecture & specs
+  planning:
+    count: 5
+    skills:
+      - prd_generation
+      - tech_spec
+      - architecture_design
+      - risk_assessment
+      - agent_assignment
+    dependencies: [meta_router]
+    model: kimi-k2-5
+    autonomy_level: 2
+    cost_per_hour: 0.50
+    
+  # FRONTEND - UI/UX development
+  frontend:
+    count: 15
+    skills:
+      - react_vite
+      - tailwind_css
+      - capacitor_integration
+      - component_design
+      - responsive_layout
+      - state_management
+    parallel_to: backend
+    model: kimi-k2-5
+    autonomy_level: 3
+    cost_per_hour: 0.40
+    
+  # BACKEND - API & database
+  backend:
+    count: 15
+    skills:
+      - fastapi
+      - supabase
+      - postgresql
+      - api_design
+      - webhook_handling
+      - paystack_integration
+    parallel_to: frontend
+    model: kimi-k2-5
+    autonomy_level: 3
+    cost_per_hour: 0.40
+    
+  # TESTING - Quality assurance
+  testing:
+    count: 10
+    skills:
+      - jest
+      - pytest
+      - detox
+      - maestro
+      - coverage_analysis
+      - security_scan
+      - go_no_go_decision
+    dependencies: [frontend, backend]
+    coverage_gates:
+      frontend: 0.85
+      backend: 0.90
+    model: kimi-k2-5
+    autonomy_level: 2
+    cost_per_hour: 0.35
+    
+  # DEVOPS - CI/CD & deployment
+  devops:
+    count: 8
+    skills:
+      - github_actions
+      - docker
+      - render_deploy
+      - play_store_api
+      - aab_signing
+      - supabase_deploy
+    dependencies: [testing]
+    model: kimi-k2-5
+    autonomy_level: 2
+    cost_per_hour: 0.35
+    
+  # RELIABILITY - Quality control
+  reliability:
+    count: 5
+    skills:
+      - consensus_verification
+      - checkpoint_management
+      - rollback_execution
+      - hallucination_detection
+      - 3_verifier_protocol
+    monitors: [frontend, backend, testing, devops]
+    model: kimi-k2-5
+    autonomy_level: 1  # Requires human gate for critical decisions
+    cost_per_hour: 0.50
+    
+  # EVOLUTION - Learning & optimization
+  evolution:
+    count: 3
+    skills:
+      - pattern_extraction
+      - prompt_optimization
+      - migration_analysis
+      - roi_calculation
+      - ab_test_design
+    triggers: [post_build_analysis]
+    model: kimi-k2-5
+    autonomy_level: 2
+    cost_per_hour: 0.50
+
+# Idle monitoring (minimal cost when not building)
+idle_mode:
+  watchdogs:
+    count: 2
+    skills: [health_monitor, failure_detection]
+    cost_per_hour: 0.10
+    
+  loggers:
+    count: 1
+    skills: [metrics_collection, report_generation]
+    cost_per_hour: 0.10
+
+# Parallel Universes (DISABLED - wasteful)
+# Note: Consensus engine already provides quality control
+# parallel_universes: null
+
+# Stress Testing (INTEGRATED into testing agents)
+# Note: Separate stress testers are redundant
+
+# Calculations
+cost_analysis:
+  active_build:
+    agents: 64
+    hourly_cost: "$32.00"
+    daily_cost: "$768.00 (if running 24h)"
+    realistic_daily: "$500 (16h build day)"
+    
+  idle_mode:
+    agents: 3
+    hourly_cost: "$0.30"
+    daily_cost: "$7.20"
+    
+  scaling_trigger:
+    on_build_start: "Scale to 64 agents"
+    on_build_complete: "Scale to 3 agents"
+    auto_scale: true
+    
+  kill_conditions:
+    - daily_budget_exceeded: 500
+    - consensus_failure_rate: 0.20
+    - agent_failure_rate: 0.30
+    - manual_kill: any_time
+
+# Quality Gates
+quality_control:
+  consensus_threshold: 0.80
+  checkpoint_interval: "every_5_minutes"
+  required_verifications: 3
+  max_retries: 3
+  
+  gates:
+    - stage: "planning"
+      requires: "human_approval"
+    - stage: "testing"
+      requires: "coverage_85%"
+    - stage: "deployment"
+      requires: "consensus_80%"
+
+# Skills Mapping
+# These map to actual skills in /home/teacherchris37/Skills/
+skills_mapping:
+  repo_analysis: "Skills/context-preloader"
+  stack_detection: "Skills/ihhashi-operations"
+  prd_generation: "MasterBuilder7/agents/specs/02-planning-agent.yaml"
+  react_vite: "Skills/antfarm/recipes/next-app"
+  tailwind_css: "MasterBuilder7/agents/specs/03-frontend-agent.yaml"
+  fastapi: "Skills/ihhashi-swarm"
+  supabase: "MasterBuilder7/infrastructure/docker/docker-compose.yml"
+  jest: "MasterBuilder7/agents/specs/05-testing-agent.yaml"
+  github_actions: "MasterBuilder7/.github/workflows/aetherforge-build.yml"
+  consensus_verification: "MasterBuilder7/reliability/consensus_engine.py"
+  checkpoint_management: "APEX-Fleet/checkpoint-system.ts"
+  pattern_extraction: "MasterBuilder7/agents/specs/08-evolution-agent.yaml"
+
+# Monitoring & Alerts
+monitoring:
+  dashboard_url: "https://apex-fleet-333-kofi.zocomputer.io"
+  realtime_metrics:
+    - agent_health
+    - task_completion_rate
+    - consensus_scores
+    - spend_tracking
+    - checkpoint_status
+    
+  alerts:
+    - condition: "spend > 80%"
+      action: "warning"
+    - condition: "spend > 95%"
+      action: "pause"
+    - condition: "spend > 100%"
+      action: "kill"
+    - condition: "consensus < 60%"
+      action: "review"
+    - condition: "agent_failure > 30%"
+      action: "rollback"

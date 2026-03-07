@@ -1,0 +1,23 @@
+# APEX Agent Worker
+# Generic agent worker that can assume any role
+
+FROM oven/bun:1.0 as base
+
+WORKDIR /app
+
+# Install dependencies
+COPY package.json bun.lockb* ./
+RUN bun install --frozen-lockfile
+
+# Copy source
+COPY . .
+
+# Agent workers connect to fleet manager
+# They don't expose ports directly
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD bun run agent-worker.ts health || exit 1
+
+# Run agent worker
+CMD ["bun", "run", "agent-worker.ts"]

@@ -1,0 +1,172 @@
+# APEX Fleet - Local Development Infrastructure
+# 64-agent simulation environment
+
+version: '3.8'
+
+services:
+  # Fleet Manager - Central orchestrator
+  fleet-manager:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.manager
+    container_name: apex-fleet-manager
+    ports:
+      - "7777:7777"  # Dashboard
+      - "7778:7778"  # API
+    environment:
+      - NODE_ENV=development
+      - DB_PATH=/data/fleet.db
+      - REDIS_URL=redis://redis:6379
+      - MAX_AGENTS=64
+      - DAILY_BUDGET=500
+    volumes:
+      - fleet-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - apex-network
+    restart: unless-stopped
+
+  # Agent Worker Pool - Dynamically scaled
+  agent-worker:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.agent
+    deploy:
+      replicas: 5
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    environment:
+      - WORKER_TYPE=generic
+      - FLEET_MANAGER_URL=http://fleet-manager:7778
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - fleet-manager
+      - redis
+    networks:
+      - apex-network
+    restart: unless-stopped
+
+  # Redis - Task queue and caching
+  redis:
+    image: redis:7-alpine
+    container_name: apex-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - apex-network
+    restart: unless-stopped
+
+  # PostgreSQL - Persistent state storage
+  postgres:
+    image: postgres:15-alpine
+    container_name: apex-postgres
+    environment:
+      - POSTGRES_USER=apex
+      - POSTGRES_PASSWORD=apex_secure_2024
+      - POSTGRES_DB=apex_fleet
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - apex-network
+    restart: unless-stopped
+
+  # MinIO - S3-compatible object storage for artifacts
+  minio:
+    image: minio/minio:latest
+    container_name: apex-minio
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=apex_admin
+      - MINIO_ROOT_PASSWORD=apex_secure_2024
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - apex-network
+    restart: unless-stopped
+
+  # Prometheus - Metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: apex-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - apex-network
+    restart: unless-stopped
+
+  # Grafana - Visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: apex-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=apex_dashboard_2024
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana-dashboards:/etc/grafana/provisioning/dashboards
+    networks:
+      - apex-network
+    restart: unless-stopped
+
+  # Jaeger - Distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: apex-jaeger
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+    networks:
+      - apex-network
+    restart: unless-stopped
+
+  # LocalStack - AWS service mocking
+  localstack:
+    image: localstack/localstack:latest
+    container_name: apex-localstack
+    ports:
+      - "4566:4566"
+      - "4571:4571"
+    environment:
+      - SERVICES=s3,sqs,lambda,ec2
+      - DEFAULT_REGION=us-east-1
+      - DATA_DIR=/tmp/localstack/data
+    volumes:
+      - localstack-data:/tmp/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - apex-network
+    restart: unless-stopped
+
+volumes:
+  fleet-data:
+  redis-data:
+  postgres-data:
+  minio-data:
+  prometheus-data:
+  grafana-data:
+  localstack-data:
+
+networks:
+  apex-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

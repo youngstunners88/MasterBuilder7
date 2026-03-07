@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fleet-manager
+  namespace: apex-fleet
+  labels:
+    app: fleet-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fleet-manager
+  template:
+    metadata:
+      labels:
+        app: fleet-manager
+    spec:
+      containers:
+      - name: fleet-manager
+        image: apex-fleet/manager:latest
+        ports:
+        - containerPort: 7777
+          name: dashboard
+        - containerPort: 7778
+          name: api
+        envFrom:
+        - configMapRef:
+            name: apex-config
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: apex-secrets
+              key: DATABASE_URL
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: apex-secrets
+              key: REDIS_URL
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 7778
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 7778
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: fleet-data
+          mountPath: /data
+      volumes:
+      - name: fleet-data
+        persistentVolumeClaim:
+          claimName: fleet-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fleet-manager
+  namespace: apex-fleet
+spec:
+  selector:
+    app: fleet-manager
+  ports:
+  - name: dashboard
+    port: 7777
+    targetPort: 7777
+  - name: api
+    port: 7778
+    targetPort: 7778
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fleet-data-pvc
+  namespace: apex-fleet
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

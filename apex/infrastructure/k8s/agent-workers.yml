@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-workers
+  namespace: apex-fleet
+  labels:
+    app: agent-workers
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: agent-workers
+  template:
+    metadata:
+      labels:
+        app: agent-workers
+    spec:
+      containers:
+      - name: agent-worker
+        image: apex-fleet/agent:latest
+        envFrom:
+        - configMapRef:
+            name: apex-config
+        env:
+        - name: FLEET_MANAGER_URL
+          value: "http://fleet-manager:7778"
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: apex-secrets
+              key: REDIS_URL
+        - name: WORKER_TYPE
+          value: "generic"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - bun
+            - run
+            - agent-worker.ts
+            - health
+          initialDelaySeconds: 10
+          periodSeconds: 30
+---
+# Horizontal Pod Autoscaler for agent workers
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: agent-workers-hpa
+  namespace: apex-fleet
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: agent-workers
+  minReplicas: 5
+  maxReplicas: 64
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60

@@ -1,0 +1,23 @@
+# APEX Fleet Manager
+# Central orchestrator for 64-agent fleet
+
+FROM oven/bun:1.0 as base
+
+WORKDIR /app
+
+# Install dependencies
+COPY package.json bun.lockb* ./
+RUN bun install --frozen-lockfile
+
+# Copy source
+COPY . .
+
+# Expose ports
+EXPOSE 7777 7778
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:7778/health || exit 1
+
+# Run fleet manager
+CMD ["bun", "run", "fleet-manager.ts"]
