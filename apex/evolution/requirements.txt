@@ -1,0 +1,15 @@
+# A/B Testing Framework Requirements
+# Core dependencies (required)
+# - Python 3.8+
+# - Standard library modules: json, uuid, hashlib, asyncio, datetime, typing, enum, collections, math, random, statistics
+
+# Optional but recommended for production:
+scipy>=1.9.0          # Statistical functions (falls back to approximations if not installed)
+numpy>=1.21.0         # Numerical computing (optional)
+
+# Database dependencies (optional, falls back to in-memory storage):
+asyncpg>=0.27.0       # PostgreSQL async driver
+aioredis>=2.0.0       # Redis async driver
+
+# For running the demo:
+# None - works with standard library only
