@@ -145,7 +145,7 @@ class ZoConnector {
   }
 }
 
-// Fleet Manager Integration
+// 8 Specialist Agent Integration
 class TandemManager {
   private zo = new ZoConnector();
   private syncInterval: Timer | null = null;
