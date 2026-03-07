@@ -1,0 +1,138 @@
+# =============================================================================
+# MasterBuilder7 - Prometheus Alert Rules
+# =============================================================================
+
+groups:
+  - name: masterbuilder7
+    rules:
+      # MCP Server Alerts
+      - alert: MCPServerDown
+        expr: up{job="mcp-server"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MCP Server is down"
+          description: "MCP Server has been down for more than 1 minute."
+
+      - alert: MCPServerHighMemoryUsage
+        expr: (container_memory_usage_bytes{name="mb7-mcp-server"} / container_spec_memory_limit_bytes{name="mb7-mcp-server"}) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MCP Server high memory usage"
+          description: "MCP Server memory usage is above 85% for more than 5 minutes."
+
+      - alert: MCPServerHighCPUUsage
+        expr: rate(container_cpu_usage_seconds_total{name="mb7-mcp-server"}[5m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MCP Server high CPU usage"
+          description: "MCP Server CPU usage is above 80% for more than 5 minutes."
+
+      # Agent Worker Alerts
+      - alert: AgentWorkersDown
+        expr: up{job="agent-workers"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent Workers are down"
+          description: "Agent Workers have been down for more than 2 minutes."
+
+      - alert: AgentWorkersHighQueueDepth
+        expr: celery_queue_length{queue_name="default"} > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High task queue depth"
+          description: "Task queue depth is above 100 for more than 5 minutes."
+
+      # Database Alerts
+      - alert: PostgreSQLDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "PostgreSQL has been down for more than 1 minute."
+
+      - alert: PostgreSQLHighConnections
+        expr: pg_stat_activity_count > 150
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL high connection count"
+          description: "PostgreSQL has more than 150 active connections."
+
+      # Redis Alerts
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "Redis has been down for more than 1 minute."
+
+      - alert: RedisHighMemoryUsage
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis high memory usage"
+          description: "Redis memory usage is above 90% for more than 5 minutes."
+
+      # Node Alerts
+      - alert: NodeHighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is above 80% for more than 5 minutes."
+
+      - alert: NodeHighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is above 85% for more than 5 minutes."
+
+      - alert: NodeDiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Less than 10% disk space remaining."
+
+      # Nginx Alerts
+      - alert: NginxHighErrorRate
+        expr: rate(nginx_http_requests_total{status=~"5.."}[5m]) / rate(nginx_http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Nginx high error rate"
+          description: "Nginx error rate is above 5% for more than 5 minutes."
+
+      - alert: NginxHighLatency
+        expr: histogram_quantile(0.95, rate(nginx_http_request_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nginx high latency"
+          description: "Nginx 95th percentile latency is above 1 second."

@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mb7-mcp-server
+  namespace: mb7
+spec:
+  replicas: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mb7-agent-worker
+  namespace: mb7
+spec:
+  replicas: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mb7-build-worker
+  namespace: mb7
+spec:
+  replicas: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mb7-security-worker
+  namespace: mb7
+spec:
+  replicas: 3

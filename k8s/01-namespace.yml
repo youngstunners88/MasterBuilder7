@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mb7
+  labels:
+    name: mb7
+    app.kubernetes.io/name: masterbuilder7
+    app.kubernetes.io/component: namespace
+    environment: production
+  annotations:
+    description: "MasterBuilder7 MCP Server Production Namespace"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: mb7-quota
+  namespace: mb7
+spec:
+  hard:
+    requests.cpu: "50"
+    requests.memory: 100Gi
+    limits.cpu: "100"
+    limits.memory: 200Gi
+    pods: "100"
+    services: "20"
+    persistentvolumeclaims: "20"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: mb7-limits
+  namespace: mb7
+spec:
+  limits:
+  - default:
+      cpu: "1"
+      memory: 1Gi
+    defaultRequest:
+      cpu: 100m
+      memory: 256Mi
+    max:
+      cpu: "4"
+      memory: 8Gi
+    min:
+      cpu: 50m
+      memory: 128Mi
+    type: Container

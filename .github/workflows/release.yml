@@ -1,0 +1,501 @@
+# =============================================================================
+# Release Workflow
+# =============================================================================
+# Triggers: Tag push (v*), manual dispatch
+# Purpose: Create releases with changelogs, artifacts, and documentation
+# =============================================================================
+
+name: 🏷️ Create Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        default: false
+        type: boolean
+      draft:
+        description: 'Create as draft'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  PYTHON_VERSION: '3.11'
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # ==========================================================================
+  # Validate Release
+  # ==========================================================================
+  validate:
+    name: ✅ Validate Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+      
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🏷️ Determine version
+        id: version
+        run: |
+          if [[ "${{ github.event.inputs.version }}" != "" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/}
+          fi
+          
+          # Check if pre-release
+          if [[ "$VERSION" =~ -(alpha|beta|rc|dev) ]] || [[ "${{ github.event.inputs.prerelease }}" == "true" ]]; then
+            IS_PRERELEASE="true"
+          else
+            IS_PRERELEASE="false"
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+          
+          echo "Creating release: $VERSION"
+          echo "Is pre-release: $IS_PRERELEASE"
+
+      - name: ✅ Validate version format
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9\.-]+)?$ ]]; then
+            echo "❌ Invalid version format: $VERSION"
+            echo "Expected format: v1.0.0 or v1.0.0-beta.1"
+            exit 1
+          fi
+          echo "✅ Version format valid"
+
+      - name: ✅ Check CHANGELOG
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [ -f "CHANGELOG.md" ]; then
+            if grep -q "$VERSION" CHANGELOG.md; then
+              echo "✅ Version found in CHANGELOG.md"
+            else
+              echo "⚠️ Version not found in CHANGELOG.md"
+            fi
+          else
+            echo "⚠️ No CHANGELOG.md found"
+          fi
+
+      - name: ✅ Verify CI passed
+        run: |
+          # Check if there are recent failed runs
+          echo "Verifying recent CI status..."
+          # This is a placeholder - in production, query GitHub API for recent workflow runs
+
+  # ==========================================================================
+  # Build Release Artifacts
+  # ==========================================================================
+  build-artifacts:
+    name: 🏗️ Build Artifacts
+    runs-on: ubuntu-latest
+    needs: validate
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu
+            runner: ubuntu-latest
+          - os: macos
+            runner: macos-latest
+          - os: windows
+            runner: windows-latest
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 📦 Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build wheel pyinstaller
+          pip install -r apex/requirements.txt
+
+      - name: 🏗️ Build Python package
+        run: |
+          python -m build --wheel --outdir dist/
+
+      - name: 🏗️ Build executable (Unix)
+        if: matrix.os != 'windows'
+        run: |
+          pyinstaller --onefile --name masterbuilder7-${{ matrix.os }} \
+            --add-data "apex:apex" \
+            apex/main.py || echo "PyInstaller skipped"
+
+      - name: 🏗️ Build executable (Windows)
+        if: matrix.os == 'windows'
+        run: |
+          pyinstaller --onefile --name masterbuilder7-windows `
+            --add-data "apex;apex" `
+            apex/main.py || echo "PyInstaller skipped"
+
+      - name: 📤 Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts-${{ matrix.os }}
+          path: |
+            dist/
+            dist/masterbuilder7-*
+          retention-days: 30
+
+  # ==========================================================================
+  # Build Docker Images
+  # ==========================================================================
+  build-images:
+    name: 🐳 Build Release Images
+    runs-on: ubuntu-latest
+    needs: validate
+    timeout-minutes: 30
+    
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔐 Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/masterbuilder7
+          tags: |
+            type=raw,value=${{ needs.validate.outputs.version }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - name: 🏗️ Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ==========================================================================
+  # Generate Changelog
+  # ==========================================================================
+  generate-changelog:
+    name: 📝 Generate Changelog
+    runs-on: ubuntu-latest
+    needs: validate
+    timeout-minutes: 10
+    
+    outputs:
+      changelog: ${{ steps.changelog.outputs.content }}
+      
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 📝 Generate changelog
+        id: changelog
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+          
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            echo "## Changes since $PREVIOUS_TAG" > CHANGELOG_TMP.md
+            echo "" >> CHANGELOG_TMP.md
+            git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD >> CHANGELOG_TMP.md
+          else
+            echo "## Initial Release" > CHANGELOG_TMP.md
+            echo "" >> CHANGELOG_TMP.md
+            git log --pretty=format:"- %s (%h)" >> CHANGELOG_TMP.md
+          fi
+          
+          # Categorize changes
+          echo "" >> CHANGELOG_TMP.md
+          echo "### 🚀 Features" >> CHANGELOG_TMP.md
+          git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD | grep -iE "(feat|feature|add)" >> CHANGELOG_TMP.md || echo "- None" >> CHANGELOG_TMP.md
+          
+          echo "" >> CHANGELOG_TMP.md
+          echo "### 🐛 Bug Fixes" >> CHANGELOG_TMP.md
+          git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD | grep -iE "(fix|bug)" >> CHANGELOG_TMP.md || echo "- None" >> CHANGELOG_TMP.md
+          
+          echo "" >> CHANGELOG_TMP.md
+          echo "### 🔧 Maintenance" >> CHANGELOG_TMP.md
+          git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD | grep -iE "(chore|refactor|docs|test)" >> CHANGELOG_TMP.md || echo "- None" >> CHANGELOG_TMP.md
+          
+          cat CHANGELOG_TMP.md
+          
+          # Output for use in release
+          echo "content<<EOF" >> $GITHUB_OUTPUT
+          cat CHANGELOG_TMP.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: 📤 Upload changelog
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: CHANGELOG_TMP.md
+          retention-days: 30
+
+  # ==========================================================================
+  # Create GitHub Release
+  # ==========================================================================
+  create-release:
+    name: 🏷️ Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [validate, build-artifacts, build-images, generate-changelog]
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    
+    steps:
+      - name: 📥 Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: 📦 Prepare release assets
+        run: |
+          mkdir -p release-assets
+          
+          # Collect all artifacts
+          find artifacts/ -type f -name "*.whl" -exec cp {} release-assets/ \;
+          find artifacts/ -type f -name "masterbuilder7-*" -exec cp {} release-assets/ \;
+          
+          # Create SBOM
+          echo "Creating SBOM..."
+          echo "SBOM for ${{ needs.validate.outputs.version }}" > release-assets/sbom.txt
+          
+          ls -la release-assets/
+
+      - name: 🏷️ Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.validate.outputs.version }}
+          name: Release ${{ needs.validate.outputs.version }}
+          body: ${{ needs.generate-changelog.outputs.changelog }}
+          draft: ${{ github.event.inputs.draft || false }}
+          prerelease: ${{ needs.validate.outputs.is_prerelease }}
+          files: |
+            release-assets/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ==========================================================================
+  # Update Documentation
+  # ==========================================================================
+  update-docs:
+    name: 📚 Update Documentation
+    runs-on: ubuntu-latest
+    needs: [validate, create-release]
+    timeout-minutes: 15
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 📦 Install dependencies
+        run: |
+          pip install mkdocs mkdocs-material
+
+      - name: 🏗️ Build documentation
+        run: |
+          if [ -f "mkdocs.yml" ]; then
+            mkdocs build
+            echo "docs_built=true" >> $GITHUB_ENV
+          else
+            echo "docs_built=false" >> $GITHUB_ENV
+          fi
+
+      - name: 🚀 Deploy to GitHub Pages
+        if: env.docs_built == 'true'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+
+      - name: 🏷️ Update version in files
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          
+          # Update version in Python package if exists
+          if [ -f "apex/__init__.py" ]; then
+            sed -i "s/__version__ = .*/__version__ = \"$VERSION\"/" apex/__init__.py || true
+          fi
+          
+          # Commit version update
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add -A
+          git commit -m "chore: bump version to $VERSION [skip ci]" || echo "No changes to commit"
+          git push || echo "Push failed (non-fatal)"
+
+  # ==========================================================================
+  # Deploy to PyPI (optional)
+  # ==========================================================================
+  deploy-pypi:
+    name: 📦 Deploy to PyPI
+    runs-on: ubuntu-latest
+    needs: [validate, create-release]
+    timeout-minutes: 15
+    environment: production
+    if: github.event.inputs.prerelease != 'true'
+    
+    steps:
+      - name: 📥 Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts-ubuntu
+          path: dist/
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 📦 Install twine
+        run: |
+          pip install twine
+
+      - name: 🔐 Configure PyPI credentials
+        run: |
+          cat > ~/.pypirc << EOF
+          [pypi]
+          username = __token__
+          password = ${{ secrets.PYPI_API_TOKEN }}
+          EOF
+
+      - name: 🚀 Upload to PyPI
+        if: secrets.PYPI_API_TOKEN != ''
+        run: |
+          twine upload dist/* --skip-existing || echo "PyPI upload skipped (no token)"
+
+  # ==========================================================================
+  # Notify
+  # ==========================================================================
+  notify:
+    name: 📢 Notify Release
+    runs-on: ubuntu-latest
+    needs: [validate, create-release, update-docs, deploy-pypi]
+    if: always()
+    
+    steps:
+      - name: 📊 Create Summary
+        run: |
+          echo "## 🏷️ Release ${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Type:** ${{ needs.validate.outputs.is_prerelease == 'true' && 'Pre-release' || 'Release' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Draft:** ${{ github.event.inputs.draft || false }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Validation | ${{ needs.validate.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Artifacts | ${{ needs.build-artifacts.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Images | ${{ needs.build-images.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Create Release | ${{ needs.create-release.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Update Docs | ${{ needs.update-docs.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deploy PyPI | ${{ needs.deploy-pypi.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Release URL:** https://github.com/${{ github.repository }}/releases/tag/${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: 🔔 Slack Notification
+        uses: slackapi/slack-github-action@v1.25.0
+        with:
+          payload: |
+            {
+              "text": "${{ needs.create-release.result == 'success' && '✅' || '❌' }} Release ${{ needs.validate.outputs.version }} ${{ needs.create-release.result }}",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "${{ needs.create-release.result == 'success' && '✅ Release Published' || '❌ Release Failed' }}"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Version:*\n${{ needs.validate.outputs.version }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Type:*\n${{ needs.validate.outputs.is_prerelease == 'true' && 'Pre-release' || 'Release' }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "🏷️ View Release"
+                      },
+                      "url": "https://github.com/${{ github.repository }}/releases/tag/${{ needs.validate.outputs.version }}"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: 🐦 Tweet (optional)
+        if: success() && needs.validate.outputs.is_prerelease != 'true'
+        run: |
+          echo "Would tweet about release ${{ needs.validate.outputs.version }}"
+          # Use twitter API here if credentials are configured

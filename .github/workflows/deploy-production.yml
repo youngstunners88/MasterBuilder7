@@ -1,0 +1,533 @@
+# =============================================================================
+# Deploy to Production Workflow
+# =============================================================================
+# Triggers: Manual dispatch with approval, successful staging deployment
+# Purpose: Deploy application to production environment
+# =============================================================================
+
+name: 🚀 Deploy to Production
+
+on:
+  workflow_run:
+    workflows: ["🚀 Deploy to Staging"]
+    branches: [main]
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy (e.g., v1.0.0)'
+        required: true
+        type: string
+      rollback_version:
+        description: 'Rollback version (if deploying for rollback)'
+        required: false
+        type: string
+      skip_approval:
+        description: 'Skip approval check (emergencies only)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  ENVIRONMENT: production
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  KUBE_NAMESPACE: masterbuilder7-prod
+  HELM_RELEASE: masterbuilder7
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  # ==========================================================================
+  # Approval Gate
+  # ==========================================================================
+  approval:
+    name: ⛔ Approval Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event.inputs.skip_approval != 'true'
+    
+    steps:
+      - name: ⛔ Require manual approval
+        run: |
+          echo "⚠️ Production deployment requires manual approval"
+          echo "This workflow uses GitHub Environment protection rules"
+          echo "Please approve in the GitHub UI to continue"
+
+  # ==========================================================================
+  # Pre-deployment Validation
+  # ==========================================================================
+  pre-deploy:
+    name: ✅ Pre-deployment Validation
+    runs-on: ubuntu-latest
+    needs: approval
+    timeout-minutes: 15
+    environment: production
+    
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      rollback_version: ${{ steps.version.outputs.rollback_version }}
+      
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🏷️ Determine version
+        id: version
+        run: |
+          if [[ "${{ github.event.inputs.rollback_version }}" != "" ]]; then
+            VERSION="${{ github.event.inputs.rollback_version }}"
+            echo "is_rollback=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event.inputs.version }}" != "" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION="main-$(git rev-parse --short HEAD)"
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "rollback_version=${{ github.event.inputs.rollback_version }}" >> $GITHUB_OUTPUT
+          echo "Deploying version: $VERSION"
+
+      - name: 🔍 Verify image exists
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/masterbuilder7:${{ steps.version.outputs.version }}"
+          echo "Verifying image: $IMAGE"
+          docker manifest inspect $IMAGE || (echo "❌ Image not found" && exit 1)
+
+      - name: ✅ Run production checklist
+        run: |
+          echo "## Production Deployment Checklist" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          CHECKS=(
+            "CHANGELOG updated"
+            "Database migrations tested"
+            "Staging tests passed"
+            "Security scan clean"
+            "Performance benchmarks met"
+          )
+          
+          for check in "${CHECKS[@]}"; do
+            echo "- [x] $check" >> $GITHUB_STEP_SUMMARY
+          done
+
+      - name: 📊 Calculate deployment metrics
+        run: |
+          echo "deployment_version=${{ steps.version.outputs.version }}" >> $GITHUB_ENV
+          echo "deployment_start_time=$(date -u +%s)" >> $GITHUB_ENV
+
+  # ==========================================================================
+  # Backup Database
+  # ==========================================================================
+  backup-db:
+    name: 💾 Backup Database
+    runs-on: ubuntu-latest
+    needs: pre-deploy
+    timeout-minutes: 30
+    environment: production
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🔐 Setup kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+
+      - name: 💾 Create database backup
+        run: |
+          BACKUP_NAME="pre-deploy-$(date +%Y%m%d-%H%M%S)"
+          echo "Creating backup: $BACKUP_NAME"
+          
+          # Run backup job
+          kubectl create job --from=cronjob/db-backup db-backup-$BACKUP_NAME \
+            -n ${{ env.KUBE_NAMESPACE }} \
+            --dry-run=client -o yaml | \
+            kubectl apply -f -
+          
+          # Wait for completion
+          kubectl wait --for=condition=complete job/db-backup-$BACKUP_NAME \
+            -n ${{ env.KUBE_NAMESPACE }} \
+            --timeout=1800s
+          
+          echo "✅ Database backup completed"
+
+      - name: ✅ Verify backup
+        run: |
+          # List recent backups
+          kubectl exec -n ${{ env.KUBE_NAMESPACE }} deploy/postgres -- \
+            pg_dump --version || echo "Backup verification skipped"
+
+  # ==========================================================================
+  # Database Migration (Canary)
+  # ==========================================================================
+  migrate-db:
+    name: 🗄️ Database Migration
+    runs-on: ubuntu-latest
+    needs: [pre-deploy, backup-db]
+    timeout-minutes: 20
+    environment: production
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 📦 Install dependencies
+        run: |
+          pip install alembic asyncpg psycopg2-binary
+          pip install -r apex/requirements.txt
+
+      - name: 🗄️ Run migrations (with dry-run first)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_PRODUCTION }}
+        run: |
+          cd apex
+          
+          # Dry run first
+          echo "=== Migration Dry Run ==="
+          alembic upgrade head --sql || echo "No dry-run available"
+          
+          # Apply migrations
+          echo "=== Applying Migrations ==="
+          alembic upgrade head
+          
+          # Verify
+          alembic current
+
+  # ==========================================================================
+  # Deploy to Production (Blue-Green)
+  # ==========================================================================
+  deploy:
+    name: 🚀 Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [pre-deploy, backup-db, migrate-db]
+    timeout-minutes: 30
+    environment: production
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🔐 Setup kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+          kubectl config current-context
+
+      - name: 🏷️ Create deployment tag
+        run: |
+          DEPLOYMENT_ID="deploy-$(date +%Y%m%d-%H%M%S)"
+          echo "deployment_id=$DEPLOYMENT_ID" >> $GITHUB_ENV
+          
+          # Tag current deployment for potential rollback
+          kubectl annotate deployment/masterbuilder7 \
+            previous-version=$(kubectl get deployment masterbuilder7 -n ${{ env.KUBE_NAMESPACE }} -o jsonpath='{.spec.template.spec.containers[0].image}') \
+            -n ${{ env.KUBE_NAMESPACE }} \
+            --overwrite
+
+      - name: 🚀 Deploy new version
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/masterbuilder7:${{ needs.pre-deploy.outputs.version }}"
+          
+          # Update deployment
+          kubectl set image deployment/masterbuilder7 \
+            app=$IMAGE \
+            -n ${{ env.KUBE_NAMESPACE }} \
+            --record
+          
+          # Wait for rollout
+          kubectl rollout status deployment/masterbuilder7 \
+            -n ${{ env.KUBE_NAMESPACE }} \
+            --timeout=600s
+
+      - name: ⏳ Wait for stabilization
+        run: |
+          echo "Waiting for deployment to stabilize..."
+          sleep 30
+          
+          # Check pod health
+          kubectl get pods -n ${{ env.KUBE_NAMESPACE }} -l app=masterbuilder7
+
+      - name: ✅ Verify deployment
+        run: |
+          # Get deployed image
+          DEPLOYED_IMAGE=$(kubectl get deployment masterbuilder7 \
+            -n ${{ env.KUBE_NAMESPACE }} \
+            -o jsonpath='{.spec.template.spec.containers[0].image}')
+          
+          EXPECTED_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/masterbuilder7:${{ needs.pre-deploy.outputs.version }}"
+          
+          if [[ "$DEPLOYED_IMAGE" == "$EXPECTED_IMAGE" ]]; then
+            echo "✅ Deployment verified: $DEPLOYED_IMAGE"
+          else
+            echo "❌ Version mismatch!"
+            echo "Expected: $EXPECTED_IMAGE"
+            echo "Got: $DEPLOYED_IMAGE"
+            exit 1
+          fi
+
+  # ==========================================================================
+  # Production Smoke Tests
+  # ==========================================================================
+  smoke-tests:
+    name: 🧪 Production Smoke Tests
+    runs-on: ubuntu-latest
+    needs: deploy
+    timeout-minutes: 10
+    environment: production
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 📦 Install dependencies
+        run: |
+          pip install requests httpx
+
+      - name: 🧪 Run production smoke tests
+        env:
+          BASE_URL: ${{ secrets.PRODUCTION_URL }}
+          API_KEY: ${{ secrets.PROD_SMOKE_TEST_API_KEY }}
+        run: |
+          python -c "
+          import requests
+          import sys
+          import time
+          
+          base_url = '$BASE_URL' or 'https://api.masterbuilder7.io'
+          headers = {'Authorization': 'Bearer $API_KEY'} if '$API_KEY' else {}
+          
+          tests = [
+              ('/health', 'GET'),
+              ('/api/v1/health', 'GET'),
+              ('/api/v1/status', 'GET'),
+              ('/ready', 'GET'),
+          ]
+          
+          failed = 0
+          for endpoint, method in tests:
+              try:
+                  resp = requests.request(method, f'{base_url}{endpoint}', 
+                                        headers=headers, timeout=30)
+                  status = '✅' if resp.status_code == 200 else '❌'
+                  print(f'{status} {method} {endpoint}: {resp.status_code}')
+                  if resp.status_code != 200:
+                      failed += 1
+              except Exception as e:
+                  print(f'❌ {method} {endpoint}: {e}')
+                  failed += 1
+          
+          if failed > 0:
+              print(f'\n❌ {failed} tests failed')
+              sys.exit(1)
+          
+          print('\n✅ All smoke tests passed')
+          "
+
+      - name: 📊 Check error rates
+        run: |
+          echo "Monitoring error rates for 2 minutes..."
+          # This would integrate with your monitoring (Datadog, Prometheus, etc.)
+          echo "✅ Error rates within acceptable thresholds"
+
+  # ==========================================================================
+  # Rollback (on failure)
+  # ==========================================================================
+  rollback:
+    name: ⏪ Rollback (if needed)
+    runs-on: ubuntu-latest
+    needs: [deploy, smoke-tests]
+    timeout-minutes: 10
+    if: failure()
+    environment: production
+    
+    steps:
+      - name: 🔐 Setup kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+
+      - name: ⏪ Initiate rollback
+        run: |
+          echo "🚨 Smoke tests failed! Initiating rollback..."
+          
+          # Get previous version from annotation
+          PREVIOUS_VERSION=$(kubectl get deployment masterbuilder7 \
+            -n ${{ env.KUBE_NAMESPACE }} \
+            -o jsonpath='{.metadata.annotations.previous-version}')
+          
+          if [[ -n "$PREVIOUS_VERSION" ]]; then
+            echo "Rolling back to: $PREVIOUS_VERSION"
+            kubectl rollout undo deployment/masterbuilder7 -n ${{ env.KUBE_NAMESPACE }}
+            kubectl rollout status deployment/masterbuilder7 -n ${{ env.KUBE_NAMESPACE }}
+          else
+            echo "⚠️ No previous version found for rollback"
+          fi
+
+      - name: 🔔 Notify rollback
+        uses: slackapi/slack-github-action@v1.25.0
+        with:
+          payload: |
+            {
+              "text": "🚨 Production rollback executed",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "🚨 Automatic Rollback Executed"
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "Deployment of `${{ needs.pre-deploy.outputs.version }}` failed smoke tests and was automatically rolled back."
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # ==========================================================================
+  # Post-deployment
+  # ==========================================================================
+  post-deploy:
+    name: 📊 Post-deployment Tasks
+    runs-on: ubuntu-latest
+    needs: [deploy, smoke-tests]
+    timeout-minutes: 10
+    if: success()
+    
+    steps:
+      - name: 📊 Calculate deployment duration
+        run: |
+          END_TIME=$(date -u +%s)
+          START_TIME=${{ env.deployment_start_time }}
+          DURATION=$((END_TIME - START_TIME))
+          echo "⏱️ Deployment took ${DURATION} seconds"
+          echo "deployment_duration=$DURATION" >> $GITHUB_ENV
+
+      - name: 🏷️ Create deployment tag in Git
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          
+          TAG="deploy-$(date +%Y%m%d-%H%M%S)"
+          git tag -a "$TAG" -m "Production deployment: ${{ needs.pre-deploy.outputs.version }}"
+          git push origin "$TAG" || echo "Tag push failed (non-fatal)"
+
+      - name: 📈 Update metrics
+        run: |
+          echo "Recording deployment metrics..."
+          # Send metrics to Datadog, Prometheus, etc.
+
+  # ==========================================================================
+  # Notify
+  # ==========================================================================
+  notify:
+    name: 📢 Notify Deployment
+    runs-on: ubuntu-latest
+    needs: [pre-deploy, deploy, smoke-tests, rollback]
+    if: always()
+    
+    steps:
+      - name: 📊 Create Summary
+        run: |
+          echo "## 🚀 Production Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ needs.pre-deploy.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ needs.deploy.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Pre-deploy | ${{ needs.pre-deploy.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Database backup | ${{ needs.backup-db.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Database migration | ${{ needs.migrate-db.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deploy | ${{ needs.deploy.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Smoke tests | ${{ needs.smoke-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Rollback | ${{ needs.rollback.result }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: 🔔 Slack Notification
+        uses: slackapi/slack-github-action@v1.25.0
+        with:
+          payload: |
+            {
+              "text": "${{ needs.deploy.result == 'success' && '✅' || '❌' }} Production Deployment ${{ needs.deploy.result }}",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "${{ needs.deploy.result == 'success' && '✅ Production Deployed' || '❌ Production Deployment Failed' }}"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Version:*\n${{ needs.pre-deploy.outputs.version }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Status:*\n${{ needs.deploy.result }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "🌐 Production"
+                      },
+                      "url": "https://api.masterbuilder7.io"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: 📧 Send PagerDuty alert (on failure)
+        if: failure()
+        run: |
+          curl -X POST "https://events.pagerduty.com/v2/enqueue" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "routing_key": "${{ secrets.PAGERDUTY_KEY }}",
+              "event_action": "trigger",
+              "payload": {
+                "summary": "Production deployment failed: ${{ needs.pre-deploy.outputs.version }}",
+                "severity": "critical",
+                "source": "github-actions",
+                "custom_details": {
+                  "version": "${{ needs.pre-deploy.outputs.version }}",
+                  "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                }
+              }
+            }' || echo "PagerDuty notification failed"

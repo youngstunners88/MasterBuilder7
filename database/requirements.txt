@@ -1,0 +1,24 @@
+# MasterBuilder7 Database Dependencies
+# PostgreSQL + SQLAlchemy + Alembic
+
+# Database
+psycopg2-binary>=2.9.9
+SQLAlchemy>=2.0.25
+
+# Migrations
+alembic>=1.13.1
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# JSON handling (included with SQLAlchemy but good to be explicit)
+jsonschema>=4.21.0
+
+# Type hints
+typing-extensions>=4.9.0
+
+# Date/time handling
+python-dateutil>=2.8.2
+
+# Async support (optional)
+asyncpg>=0.29.0

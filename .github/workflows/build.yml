@@ -1,0 +1,382 @@
+# =============================================================================
+# Build Workflow - Build and Package Application
+# =============================================================================
+# Triggers: Successful CI on main/develop, manual dispatch, tags
+# Purpose: Build Docker images, create artifacts, prepare for deployment
+# =============================================================================
+
+name: 🏗️ Build & Package
+
+on:
+  workflow_run:
+    workflows: ["🔍 Continuous Integration"]
+    branches: [main, develop]
+    types:
+      - completed
+  push:
+    tags:
+      - 'v*'
+      - 'release-*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to build (e.g., v1.0.0)'
+        required: false
+        type: string
+      push_to_registry:
+        description: 'Push to container registry'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  PYTHON_VERSION: '3.11'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ==========================================================================
+  # Version Management
+  # ==========================================================================
+  version:
+    name: 🏷️ Determine Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      short_sha: ${{ steps.version.outputs.short_sha }}
+      branch: ${{ steps.version.outputs.branch }}
+      
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🏷️ Extract version info
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          BRANCH=${GITHUB_REF#refs/heads/}
+          
+          if [[ "${{ github.event.inputs.version }}" != "" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          elif [[ "$BRANCH" == "main" ]]; then
+            VERSION="latest-${SHORT_SHA}"
+          else
+            VERSION="${BRANCH}-${SHORT_SHA}"
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          
+          echo "Building version: $VERSION"
+          echo "Short SHA: $SHORT_SHA"
+          echo "Branch: $BRANCH"
+
+  # ==========================================================================
+  # Build Python Package
+  # ==========================================================================
+  build-python:
+    name: 📦 Build Python Package
+    runs-on: ubuntu-latest
+    needs: version
+    timeout-minutes: 15
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 📦 Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build wheel setuptools
+
+      - name: 🏗️ Build wheel
+        run: |
+          python -m build --wheel --outdir dist/
+
+      - name: 📋 Generate build info
+        run: |
+          echo "{" > dist/build-info.json
+          echo "  \"version\": \"${{ needs.version.outputs.version }}\"," >> dist/build-info.json
+          echo "  \"sha\": \"${{ github.sha }}\"," >> dist/build-info.json
+          echo "  \"branch\": \"${{ needs.version.outputs.branch }}\"," >> dist/build-info.json
+          echo "  \"build_time\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"," >> dist/build-info.json
+          echo "  \"builder\": \"github-actions\"" >> dist/build-info.json
+          echo "}" >> dist/build-info.json
+
+      - name: 📤 Upload Python package
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-${{ needs.version.outputs.version }}
+          path: dist/
+          retention-days: 30
+
+  # ==========================================================================
+  # Build Docker Images
+  # ==========================================================================
+  build-docker:
+    name: 🐳 Build Docker Images
+    runs-on: ubuntu-latest
+    needs: version
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: ./Dockerfile
+            image: masterbuilder7
+            target: production
+          - dockerfile: ./apex/infrastructure/docker/Dockerfile
+            image: masterbuilder7-apex
+            target: production
+    
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 📦 Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ matrix.image }}-${{ hashFiles('**/requirements.txt', '**/Dockerfile') }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-${{ matrix.image }}-
+            ${{ runner.os }}-buildx-
+
+      - name: 🔐 Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}
+          tags: |
+            type=raw,value=${{ needs.version.outputs.version }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=${{ needs.version.outputs.branch }}-
+            type=ref,event=branch
+            type=ref,event=pr
+
+      - name: 🏗️ Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          push: ${{ github.event.inputs.push_to_registry != 'false' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ needs.version.outputs.version }}
+
+      - name: 🔄 Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+  # ==========================================================================
+  # Build Agent Images
+  # ==========================================================================
+  build-agents:
+    name: 🤖 Build Agent Images
+    runs-on: ubuntu-latest
+    needs: version
+    timeout-minutes: 30
+    if: contains(github.event.head_commit.message, '[build-agents]') || github.event_name == 'workflow_dispatch'
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        agent:
+          - meta-router
+          - planning-agent
+          - frontend-agent
+          - backend-agent
+          - testing-agent
+          - devops-agent
+          - reliability-evolution-agent
+          - evolution-agent
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔐 Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏗️ Build agent image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./apex/agents/docker/Dockerfile.${{ matrix.agent }}
+          push: ${{ github.event.inputs.push_to_registry != 'false' }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/agent-${{ matrix.agent }}:${{ needs.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/agent-${{ matrix.agent }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ==========================================================================
+  # Security Scan Images
+  # ==========================================================================
+  scan-images:
+    name: 🔒 Scan Docker Images
+    runs-on: ubuntu-latest
+    needs: build-docker
+    timeout-minutes: 20
+    
+    steps:
+      - name: 🔐 Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔒 Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/masterbuilder7:${{ needs.version.outputs.version }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: 📤 Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: 📊 Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/masterbuilder7:${{ needs.version.outputs.version }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: 📤 Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ needs.version.outputs.version }}
+          path: sbom.spdx.json
+          retention-days: 90
+
+  # ==========================================================================
+  # Generate Documentation
+  # ==========================================================================
+  build-docs:
+    name: 📚 Build Documentation
+    runs-on: ubuntu-latest
+    needs: version
+    timeout-minutes: 10
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 📦 Install dependencies
+        run: |
+          pip install mkdocs mkdocs-material mkdocs-gen-files
+
+      - name: 🏗️ Build documentation
+        run: |
+          mkdocs build --strict || echo "No mkdocs.yml found, skipping docs build"
+
+      - name: 📤 Upload documentation
+        if: success() && hashFiles('site/') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-${{ needs.version.outputs.version }}
+          path: site/
+          retention-days: 30
+
+  # ==========================================================================
+  # Notify Results
+  # ==========================================================================
+  notify:
+    name: 📢 Notify Build Results
+    runs-on: ubuntu-latest
+    needs: [version, build-python, build-docker, scan-images]
+    if: always()
+    
+    steps:
+      - name: 📊 Create Summary
+        run: |
+          echo "## 🏗️ Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ needs.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Python Package | ${{ needs.build-python.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker Images | ${{ needs.build-docker.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Scan | ${{ needs.scan-images.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Docker Images" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/masterbuilder7:${{ needs.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: 🔔 Discord Notification
+        if: always()
+        uses: Ilshidur/action-discord@master
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        with:
+          args: |
+            ${{ needs.build-docker.result == 'success' && '✅' || '❌' }} **Build ${{ needs.build-docker.result }}**
+            
+            **Version:** ${{ needs.version.outputs.version }}
+            **Branch:** ${{ needs.version.outputs.branch }}
+            
+            Images available at:
+            `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/masterbuilder7:${{ needs.version.outputs.version }}`
+        continue-on-error: true

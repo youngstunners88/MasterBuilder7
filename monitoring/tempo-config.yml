@@ -1,0 +1,175 @@
+# MasterBuilder7 - Tempo Configuration
+# Distributed tracing for 8-agent build system
+
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+  log_level: info
+  log_format: json
+
+# Distributor configuration
+distributor:
+  receivers:
+    jaeger:
+      protocols:
+        thrift_http:
+          endpoint: 0.0.0.0:14268
+        thrift_binary:
+          endpoint: 0.0.0.0:6832
+        thrift_compact:
+          endpoint: 0.0.0.0:6831
+        grpc:
+          endpoint: 0.0.0.0:14250
+    zipkin:
+      endpoint: 0.0.0.0:9411
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+        grpc:
+          endpoint: 0.0.0.0:4317
+    opencensus:
+      endpoint: 0.0.0.0:55678
+
+  # Rate limiting
+  rate_limit:
+    traces_per_user: 100000
+    bytes_per_user: 100000000  # 100MB
+
+# Ingester configuration
+ingester:
+  lifecycler:
+    address: 127.0.0.1
+    ring:
+      kvstore:
+        store: memberlist
+      replication_factor: 1
+    final_sleep: 0s
+  trace_idle_period: 30s
+  max_block_bytes: 1073741824  # 1GB
+  max_block_duration: 30m
+  complete_block_timeout: 15m
+  flush_check_period: 10s
+
+# Compactor configuration
+compactor:
+  compaction:
+    compaction_window: 4h
+    chunk_size_bytes: 10485760  # 10MB
+    flush_size_bytes: 31457280  # 30MB
+    iterator_buffer_size: 1000
+    block_retention: 168h  # 7 days
+    compacted_block_retention: 1h
+  ring:
+    kvstore:
+      store: memberlist
+
+# Storage configuration
+storage:
+  trace:
+    backend: local
+    local:
+      path: /tmp/tempo/traces
+    wal:
+      path: /tmp/tempo/wal
+    block:
+      bloom_filter_false_positive: 0.05
+      bloom_filter_shard_size_bytes: 256000
+      version: v2
+      encoding: zstd
+    pool:
+      max_workers: 100
+      queue_depth: 10000
+
+# Memberlist configuration (for ring)
+memberlist:
+  bind_port: 7946
+  join_members: []
+
+# Query frontend configuration
+query_frontend:
+  max_outstanding_per_tenant: 2000
+  querier:
+    concurrent_tenant_queries: 10
+
+# Querier configuration
+querier:
+  query_timeout: 30s
+  max_concurrent_queries: 20
+  search:
+    query_timeout: 30s
+    prefer_self: 10
+    external_endpoints: []
+    external_hedge_requests_at: 8s
+    external_hedge_requests_up_to: 2
+  trace_by_id:
+    query_timeout: 10s
+
+# Compactor configuration
+compactor:
+  ring:
+    kvstore:
+      store: memberlist
+
+# Metrics generator configuration (for span metrics)
+metrics_generator:
+  registry:
+    external_labels:
+      source: tempo
+      cluster: masterbuilder7
+  storage:
+    path: /tmp/tempo/generator/wal
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true
+  traces_storage:
+    path: /tmp/tempo/generator/traces
+  # Processors to enable
+  processor:
+    service_graphs:
+      max_items: 10000
+      wait: 10s
+      workers: 10
+      histogram_buckets: [0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8]
+    span_metrics:
+      histogram_buckets: [0.002, 0.004, 0.008, 0.016, 0.032, 0.064, 0.128, 0.256, 0.512, 1.02, 2.05, 4.10]
+      dimensions:
+        - name: http.method
+        - name: http.target
+        - name: http.status_code
+        - name: agent.name
+        - name: agent.type
+        - name: build.id
+        - name: build.status
+  ring:
+    kvstore:
+      store: memberlist
+
+# Overrides configuration
+overrides:
+  defaults:
+    ingestion:
+      max_traces_per_user: 100000
+      max_local_bytes_per_user: 10737418240  # 10GB
+      max_global_bytes_per_user: 10737418240
+    read:
+      max_search_bytes_per_trace: 50000
+      max_bytes_per_tag_values_query: 1073741824  # 1GB
+    global:
+      max_bytes_per_trace: 5000000  # 5MB
+
+# Usage report configuration
+usage_report:
+  reporting_enabled: false
+
+# Cache configuration
+cache:
+  caches:
+    - roles:
+        - parquet-footer
+        - frontend
+      memcached:
+        host: localhost:11211
+        timeout: 500ms
+        max_idle_connections: 100
+        max_item_size: 16777216  # 16MB

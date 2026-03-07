@@ -1,0 +1,21 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Data directories (mount as volumes)
+data/
+logs/
+backups/
+
+# SSL certificates (mount as secrets)
+ssl/*.crt
+ssl/*.key
+ssl/*.pem
+
+# Generated files
+*.log
+*.pid
+
+# Docker volumes
+volumes/

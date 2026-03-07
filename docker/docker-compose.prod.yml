@@ -1,0 +1,420 @@
+# =============================================================================
+# MasterBuilder7 - Production Docker Compose
+# Optimized for production deployments with high availability
+# =============================================================================
+
+version: '3.8'
+
+x-default-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "100m"
+    max-file: "10"
+    labels: "service_name"
+    compress: "true"
+
+services:
+  # ---------------------------------------------------------------------------
+  # MCP Server - Production Cluster
+  # ---------------------------------------------------------------------------
+  mcp-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: production
+    image: masterbuilder7/mcp-server:${VERSION:-latest}
+    restart: always
+    deploy:
+      replicas: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        order: start-first
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: pause
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+      placement:
+        constraints:
+          - node.role == worker
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=WARNING
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/masterbuilder7
+      - REDIS_URL=redis://redis:6379/0
+      - MCP_SERVER_HOST=0.0.0.0
+      - MCP_SERVER_PORT=8080
+      - API_KEY=${API_KEY}
+      - SECRET_KEY=${SECRET_KEY}
+      - ENABLE_METRICS=true
+      - METRICS_PORT=9090
+      - SENTRY_DSN=${SENTRY_DSN}
+      - SSL_CERT_PATH=/etc/ssl/certs/mb7.crt
+      - SSL_KEY_PATH=/etc/ssl/private/mb7.key
+    volumes:
+      - mb7-data:/app/data
+      - mb7-logs:/app/logs
+      - mb7-checkpoints:/app/checkpoints
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - /etc/ssl/private:/etc/ssl/private:ro
+    networks:
+      - mb7-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "--cacert", "/etc/ssl/certs/mb7.crt", "https://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # Agent Workers - Production Scale
+  # ---------------------------------------------------------------------------
+  agent-workers:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agent
+      target: production
+    image: masterbuilder7/agent-worker:${VERSION:-latest}
+    restart: always
+    deploy:
+      replicas: 5
+      update_config:
+        parallelism: 2
+        delay: 30s
+        failure_action: rollback
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 5
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    environment:
+      - WORKER_TYPE=agent
+      - WORKER_CONCURRENCY=8
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/masterbuilder7
+      - REDIS_URL=redis://redis:6379/0
+      - MCP_SERVER_URL=http://mcp-server:8080
+      - LOG_LEVEL=WARNING
+    volumes:
+      - mb7-data:/app/data
+      - mb7-logs:/app/logs
+    networks:
+      - mb7-network
+    depends_on:
+      - mcp-server
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # Celery Worker - Production Queue
+  # ---------------------------------------------------------------------------
+  celery-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agent
+      target: celery-worker
+    image: masterbuilder7/celery-worker:${VERSION:-latest}
+    restart: always
+    deploy:
+      replicas: 3
+      update_config:
+        parallelism: 1
+        delay: 20s
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - CELERY_QUEUE=default,high,priority
+      - CELERY_LOG_LEVEL=WARNING
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/masterbuilder7
+    volumes:
+      - mb7-data:/app/data
+    networks:
+      - mb7-network
+    healthcheck:
+      test: ["CMD", "celery", "-A", "apex.agents.task_queue", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL - Production with Replication
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    restart: always
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
+        reservations:
+          cpus: '2.0'
+          memory: 4G
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=masterbuilder7
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d:ro
+      - postgres-backup:/backup
+    networks:
+      - mb7-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d masterbuilder7"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=500"
+      - "-c"
+      - "shared_buffers=2GB"
+      - "-c"
+      - "effective_cache_size=6GB"
+      - "-c"
+      - "maintenance_work_mem=512MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_buffers=16MB"
+      - "-c"
+      - "default_statistics_target=100"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "work_mem=20971kB"
+      - "-c"
+      - "min_wal_size=1GB"
+      - "-c"
+      - "max_wal_size=4GB"
+
+  # ---------------------------------------------------------------------------
+  # Redis - Production Cluster
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+    volumes:
+      - redis-data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - mb7-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    logging: *default-logging
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 1536mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --requirepass ${REDIS_PASSWORD}
+
+  # ---------------------------------------------------------------------------
+  # Prometheus - Production Monitoring
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+    volumes:
+      - ./prometheus/prometheus.prod.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    networks:
+      - mb7-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=50GB'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # Grafana - Production Dashboards
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.1.0
+    restart: always
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL}
+      - GF_SMTP_ENABLED=true
+      - GF_SMTP_HOST=${SMTP_HOST}
+      - GF_SMTP_USER=${SMTP_USER}
+      - GF_SMTP_PASSWORD=${SMTP_PASSWORD}
+      - GF_SMTP_FROM_ADDRESS=${SMTP_FROM}
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource,grafana-image-renderer
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - mb7-network
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # Nginx - Production Load Balancer
+  # ---------------------------------------------------------------------------
+  nginx:
+    image: nginx:alpine
+    restart: always
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx-cache:/var/cache/nginx
+    networks:
+      - mb7-network
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # Node Exporter - Host Metrics
+  # ---------------------------------------------------------------------------
+  node-exporter:
+    image: prom/node-exporter:v1.6.1
+    restart: always
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      - mb7-network
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # cAdvisor - Container Metrics
+  # ---------------------------------------------------------------------------
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.2
+    restart: always
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - mb7-network
+    logging: *default-logging
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres-data:
+    driver: local
+  postgres-backup:
+    driver: local
+  redis-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  nginx-cache:
+    driver: local
+  mb7-data:
+    driver: local
+  mb7-logs:
+    driver: local
+  mb7-checkpoints:
+    driver: local
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  mb7-network:
+    driver: overlay
+    attachable: true
+    ipam:
+      config:
+        - subnet: 10.0.0.0/16

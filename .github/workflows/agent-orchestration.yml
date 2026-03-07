@@ -1,0 +1,448 @@
+# =============================================================================
+# Agent Orchestration Workflow
+# =============================================================================
+# Triggers: Manual dispatch, schedule, API calls
+# Purpose: Trigger agent builds, run agent tests, orchestrate agent fleet
+# =============================================================================
+
+name: 🤖 Agent Orchestration
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'apex/agents/**'
+      - 'sub-agents/**'
+      - 'skills/**'
+  pull_request:
+    paths:
+      - 'apex/agents/**'
+      - 'sub-agents/**'
+      - 'skills/**'
+  schedule:
+    # Run agent health checks every hour
+    - cron: '0 * * * *'
+    # Run full agent orchestration daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'Operation to perform'
+        required: true
+        default: 'health-check'
+        type: choice
+        options:
+          - health-check
+          - build-all
+          - test-all
+          - orchestrate
+          - deploy-agents
+          - update-knowledge-base
+      agent_filter:
+        description: 'Filter agents (comma-separated, or "all")'
+        required: false
+        default: 'all'
+        type: string
+      environment:
+        description: 'Target environment'
+        required: false
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  PYTHON_VERSION: '3.11'
+
+concurrency:
+  group: agent-orchestration-${{ github.event.inputs.operation || 'auto' }}
+  cancel-in-progress: false
+
+jobs:
+  # ==========================================================================
+  # Detect Changed Agents
+  # ==========================================================================
+  detect-changes:
+    name: 🔍 Detect Agent Changes
+    runs-on: ubuntu-latest
+    outputs:
+      agents_changed: ${{ steps.changes.outputs.agents }}
+      skills_changed: ${{ steps.changes.outputs.skills }}
+      agent_matrix: ${{ steps.matrix.outputs.matrix }}
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔍 Check for agent changes
+        id: changes
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "agents=true" >> $GITHUB_OUTPUT
+            echo "skills=true" >> $GITHUB_OUTPUT
+          else
+            # Check if agents directory changed
+            if git diff --name-only HEAD~1 HEAD | grep -q "apex/agents/"; then
+              echo "agents=true" >> $GITHUB_OUTPUT
+            else
+              echo "agents=false" >> $GITHUB_OUTPUT
+            fi
+            
+            # Check if skills directory changed
+            if git diff --name-only HEAD~1 HEAD | grep -q "skills/"; then
+              echo "skills=true" >> $GITHUB_OUTPUT
+            else
+              echo "skills=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: 🏗️ Build agent matrix
+        id: matrix
+        run: |
+          AGENTS=("meta-router" "planning-agent" "frontend-agent" "backend-agent" 
+                  "testing-agent" "devops-agent" "reliability-evolution-agent" "evolution-agent")
+          
+          # Filter if specified
+          if [[ "${{ github.event.inputs.agent_filter }}" != "" && "${{ github.event.inputs.agent_filter }}" != "all" ]]; then
+            IFS=',' read -ra FILTER <<< "${{ github.event.inputs.agent_filter }}"
+            FILTERED=()
+            for agent in "${AGENTS[@]}"; do
+              for f in "${FILTER[@]}"; do
+                if [[ "$agent" == "$f" ]]; then
+                  FILTERED+=("$agent")
+                fi
+              done
+            done
+            AGENTS=("${FILTERED[@]}")
+          fi
+          
+          # Build JSON matrix
+          MATRIX=$(printf '%s\n' "${AGENTS[@]}" | jq -R . | jq -s . | jq -c '{agent: .}')
+          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+          echo "Agent matrix: $MATRIX"
+
+  # ==========================================================================
+  # Agent Health Check
+  # ==========================================================================
+  health-check:
+    name: 💚 Agent Health Check
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    timeout-minutes: 10
+    if: github.event.inputs.operation == 'health-check' || github.event.inputs.operation == ''
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 📦 Install dependencies
+        run: |
+          pip install -r apex/requirements.txt
+          pip install aiohttp
+
+      - name: 💚 Run health checks
+        env:
+          AGENT_API_URL: ${{ secrets.AGENT_API_URL_STAGING }}
+        run: |
+          python -c "
+          import asyncio
+          import aiohttp
+          import sys
+          
+          async def check_agent(session, name, url):
+              try:
+                  async with session.get(f'{url}/health', timeout=10) as resp:
+                      status = '✅' if resp.status == 200 else '❌'
+                      print(f'{status} {name}: {resp.status}')
+                      return resp.status == 200
+              except Exception as e:
+                  print(f'❌ {name}: {e}')
+                  return False
+          
+          async def main():
+              base_url = '${{ secrets.AGENT_API_URL_STAGING }}' or 'http://localhost:8000'
+              agents = [
+                  ('meta-router', f'{base_url}/api/v1/agents/meta-router'),
+                  ('planning-agent', f'{base_url}/api/v1/agents/planning-agent'),
+                  ('frontend-agent', f'{base_url}/api/v1/agents/frontend-agent'),
+                  ('backend-agent', f'{base_url}/api/v1/agents/backend-agent'),
+              ]
+              
+              async with aiohttp.ClientSession() as session:
+                  results = await asyncio.gather(*[
+                      check_agent(session, name, url) for name, url in agents
+                  ])
+              
+              healthy = sum(results)
+              total = len(results)
+              print(f'\n💚 {healthy}/{total} agents healthy')
+              
+              if healthy < total:
+                  sys.exit(1)
+          
+          asyncio.run(main())
+          "
+
+  # ==========================================================================
+  # Build Agent Images
+  # ==========================================================================
+  build-agents:
+    name: 🏗️ Build Agent Images
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    timeout-minutes: 30
+    if: needs.detect-changes.outputs.agents_changed == 'true' || github.event.inputs.operation == 'build-all'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.agent_matrix) }}
+    
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔐 Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/agent-${{ matrix.agent }}
+          tags: |
+            type=sha,prefix=${{ github.ref_name }}-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: 🏗️ Build and push agent image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./apex/agents/docker/Dockerfile.${{ matrix.agent }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ==========================================================================
+  # Test Agents
+  # ==========================================================================
+  test-agents:
+    name: 🧪 Test Agents
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    timeout-minutes: 20
+    if: needs.detect-changes.outputs.agents_changed == 'true' || github.event.inputs.operation == 'test-all'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.agent_matrix) }}
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 📦 Install dependencies
+        run: |
+          pip install pytest pytest-asyncio pytest-cov
+          pip install -r apex/requirements.txt
+
+      - name: 🧪 Run agent tests
+        run: |
+          AGENT_DIR="apex/agents/${{ matrix.agent }}"
+          if [ -d "$AGENT_DIR/tests" ]; then
+            pytest $AGENT_DIR/tests -v --tb=short
+          elif [ -d "tests/agents/${{ matrix.agent }}" ]; then
+            pytest tests/agents/${{ matrix.agent }} -v --tb=short
+          else
+            echo "No tests found for ${{ matrix.agent }}"
+          fi
+
+      - name: 🔬 Run agent validation
+        run: |
+          python -c "
+          import yaml
+          import sys
+          
+          spec_file = 'apex/agents/specs/01-${{ matrix.agent }}.yaml'
+          try:
+              with open(spec_file) as f:
+                  spec = yaml.safe_load(f)
+              print(f'✅ Agent spec valid: {spec.get(\"name\", \"${{ matrix.agent }}\")}')
+          except FileNotFoundError:
+              print(f'⚠️ No spec file found for ${{ matrix.agent }}')
+          except Exception as e:
+              print(f'❌ Invalid spec: {e}')
+              sys.exit(1)
+          "
+
+  # ==========================================================================
+  # Deploy Agents
+  # ==========================================================================
+  deploy-agents:
+    name: 🚀 Deploy Agents
+    runs-on: ubuntu-latest
+    needs: [detect-changes, build-agents, test-agents]
+    timeout-minutes: 20
+    if: github.event.inputs.operation == 'deploy-agents' || (needs.detect-changes.outputs.agents_changed == 'true' && github.ref == 'refs/heads/main')
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.agent_matrix) }}
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🔐 Setup kubectl
+        run: |
+          mkdir -p ~/.kube
+          ENV="${{ github.event.inputs.environment || 'staging' }}"
+          if [[ "$ENV" == "production" ]]; then
+            echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+          else
+            echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > ~/.kube/config
+          fi
+
+      - name: 🚀 Deploy agent
+        run: |
+          NAMESPACE="masterbuilder7-${{ github.event.inputs.environment || 'staging' }}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/agent-${{ matrix.agent }}:${{ github.sha }}"
+          
+          kubectl set image deployment/agent-${{ matrix.agent }} \
+            agent=$IMAGE \
+            -n $NAMESPACE \
+            --record
+          
+          kubectl rollout status deployment/agent-${{ matrix.agent }} \
+            -n $NAMESPACE \
+            --timeout=300s
+
+  # ==========================================================================
+  # Update Knowledge Base
+  # ==========================================================================
+  update-kb:
+    name: 📚 Update Knowledge Base
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event.inputs.operation == 'update-knowledge-base' || github.event.schedule == '0 2 * * *'
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 📦 Install dependencies
+        run: |
+          pip install chromadb sentence-transformers
+          pip install -r apex/requirements.txt
+
+      - name: 📚 Update agent knowledge base
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CHROMA_PERSIST_DIR: ${{ secrets.CHROMA_PERSIST_DIR }}
+        run: |
+          python apex/agents/update_knowledge_base.py || echo "Knowledge base update skipped"
+
+      - name: 📊 Generate knowledge base report
+        run: |
+          echo "## 📚 Knowledge Base Update" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Updated at: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+
+  # ==========================================================================
+  # Orchestrate Fleet
+  # ==========================================================================
+  orchestrate:
+    name: 🎛️ Orchestrate Agent Fleet
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event.inputs.operation == 'orchestrate'
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 📦 Install dependencies
+        run: |
+          pip install -r apex/requirements.txt
+
+      - name: 🎛️ Run fleet orchestration
+        env:
+          AGENT_API_KEY: ${{ secrets.AGENT_API_KEY }}
+          AGENT_API_URL: ${{ secrets.AGENT_API_URL_STAGING }}
+        run: |
+          python apex/orchestrate_fleet.py || echo "Fleet orchestration completed with warnings"
+
+  # ==========================================================================
+  # Notify
+  # ==========================================================================
+  notify:
+    name: 📢 Notify Results
+    runs-on: ubuntu-latest
+    needs: [detect-changes, health-check, build-agents, test-agents, deploy-agents]
+    if: always()
+    
+    steps:
+      - name: 📊 Create Summary
+        run: |
+          echo "## 🤖 Agent Orchestration Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Operation:** ${{ github.event.inputs.operation || 'auto-detect' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Agents Changed:** ${{ needs.detect-changes.outputs.agents_changed }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Detect Changes | ${{ needs.detect-changes.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Health Check | ${{ needs.health-check.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Agents | ${{ needs.build-agents.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Agents | ${{ needs.test-agents.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deploy Agents | ${{ needs.deploy-agents.result }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: 🔔 Discord Notification
+        if: failure()
+        uses: Ilshidur/action-discord@master
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        with:
+          args: |
+            ❌ **Agent Orchestration Failed**
+            
+            Operation: ${{ github.event.inputs.operation || 'auto' }}
+            [View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+        continue-on-error: true

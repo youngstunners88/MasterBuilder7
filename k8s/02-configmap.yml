@@ -1,0 +1,303 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mb7-config
+  namespace: mb7
+  labels:
+    app.kubernetes.io/name: masterbuilder7
+    app.kubernetes.io/component: config
+data:
+  # Application Configuration
+  APP_NAME: "MasterBuilder7"
+  APP_VERSION: "1.1.0"
+  APP_ENV: "production"
+  LOG_LEVEL: "INFO"
+  
+  # Server Configuration
+  MCP_HOST: "0.0.0.0"
+  MCP_PORT: "8000"
+  MCP_WORKERS: "4"
+  
+  # Database Configuration (non-sensitive)
+  POSTGRES_HOST: "mb7-postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "masterbuilder7"
+  POSTGRES_SSL_MODE: "require"
+  POSTGRES_POOL_SIZE: "20"
+  POSTGRES_MAX_OVERFLOW: "30"
+  POSTGRES_POOL_TIMEOUT: "30"
+  
+  # Redis Configuration
+  REDIS_HOST: "mb7-redis"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  REDIS_SSL: "false"
+  REDIS_POOL_SIZE: "50"
+  REDIS_SOCKET_TIMEOUT: "5"
+  REDIS_SOCKET_CONNECT_TIMEOUT: "5"
+  
+  # YOLO Orchestrator Configuration
+  YOLO_SAFETY_THRESHOLD: "0.6"
+  YOLO_MAX_AGENTS: "64"
+  YOLO_BUILD_TIMEOUT: "3600"
+  YOLO_CHECKPOINT_ENABLED: "true"
+  
+  # Agent Configuration
+  AGENT_HEARTBEAT_INTERVAL: "30"
+  AGENT_TIMEOUT: "300"
+  AGENT_MAX_RETRIES: "3"
+  AGENT_PARALLEL_LIMIT: "8"
+  
+  # Consensus Engine Configuration
+  CONSENSUS_THRESHOLD: "0.6"
+  CONSENSUS_MIN_AGENTS: "3"
+  CONSENSUS_TIMEOUT: "60"
+  
+  # Monitoring Configuration
+  METRICS_ENABLED: "true"
+  METRICS_PORT: "9090"
+  HEALTH_CHECK_INTERVAL: "10"
+  
+  # Rate Limiting
+  RATE_LIMIT_REQUESTS: "1000"
+  RATE_LIMIT_WINDOW: "60"
+  
+  # CORS Configuration
+  CORS_ORIGINS: "*"
+  CORS_METHODS: "GET,POST,PUT,DELETE,OPTIONS"
+  CORS_HEADERS: "*"
+  
+  # Feature Flags
+  FEATURE_SECURITY_AUDIT: "true"
+  FEATURE_QUANTUM_OPTIMIZATION: "false"
+  FEATURE_AUTO_ROLLBACK: "true"
+  FEATURE_PARALLEL_BUILD: "true"
+  
+  # Python Configuration
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONFAULTHANDLER: "1"
+  PYTHONHASHSEED: "random"
+  
+  # Timezone
+  TZ: "UTC"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mb7-postgres-config
+  namespace: mb7
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+data:
+  POSTGRES_DB: "masterbuilder7"
+  POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+  PGDATA: "/var/lib/postgresql/data/pgdata"
+  
+  # PostgreSQL Performance Tuning
+  POSTGRES_CONFIG: |
+    # Connection Settings
+    max_connections = 200
+    shared_buffers = 2GB
+    effective_cache_size = 6GB
+    maintenance_work_mem = 512MB
+    work_mem = 20MB
+    
+    # Checkpoint Settings
+    checkpoint_completion_target = 0.9
+    wal_buffers = 16MB
+    default_statistics_target = 100
+    random_page_cost = 1.1
+    effective_io_concurrency = 200
+    
+    # Logging
+    log_min_duration_statement = 1000
+    log_checkpoints = on
+    log_connections = on
+    log_disconnections = on
+    log_lock_waits = on
+    log_temp_files = 0
+    log_autovacuum_min_duration = 0
+    
+    # Auto Vacuum
+    autovacuum_max_workers = 4
+    autovacuum_naptime = 10s
+    
+    # Replication (for HA setup)
+    hot_standby = on
+    max_wal_senders = 10
+    max_replication_slots = 10
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mb7-redis-config
+  namespace: mb7
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: cache
+data:
+  redis.conf: |
+    # Network
+    bind 0.0.0.0
+    port 6379
+    protected-mode yes
+    tcp-backlog 511
+    timeout 300
+    tcp-keepalive 300
+    
+    # Memory Management
+    maxmemory 2gb
+    maxmemory-policy allkeys-lru
+    maxmemory-samples 5
+    
+    # Persistence (RDB)
+    save 900 1
+    save 300 10
+    save 60 10000
+    stop-writes-on-bgsave-error yes
+    rdbcompression yes
+    rdbchecksum yes
+    dbfilename dump.rdb
+    dir /data
+    
+    # AOF Persistence
+    appendonly yes
+    appendfilename "appendonly.aof"
+    appendfsync everysec
+    no-appendfsync-on-rewrite no
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+    
+    # Logging
+    loglevel notice
+    logfile ""
+    
+    # Limits
+    maxclients 10000
+    
+    # Slow Log
+    slowlog-log-slower-than 10000
+    slowlog-max-len 128
+    
+    # Event Notification
+    notify-keyspace-events Ex
+    
+    # Client Output Buffer Limits
+    client-output-buffer-limit normal 0 0 0
+    client-output-buffer-limit replica 256mb 64mb 60
+    client-output-buffer-limit pubsub 32mb 8mb 60
+    
+    # Kernel Settings
+    hz 10
+    dynamic-hz yes
+    aof-rewrite-incremental-fsync yes
+    rdb-save-incremental-fsync yes
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mb7-nginx-config
+  namespace: mb7
+  labels:
+    app.kubernetes.io/name: nginx
+    app.kubernetes.io/component: ingress
+data:
+  nginx.conf: |
+    worker_processes auto;
+    error_log /var/log/nginx/error.log warn;
+    pid /var/run/nginx.pid;
+    
+    events {
+        worker_connections 4096;
+        use epoll;
+        multi_accept on;
+    }
+    
+    http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+        
+        # Logging
+        log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                       '$status $body_bytes_sent "$http_referer" '
+                       '"$http_user_agent" "$http_x_forwarded_for" '
+                       'rt=$request_time uct="$upstream_connect_time" '
+                       'uht="$upstream_header_time" urt="$upstream_response_time"';
+        
+        access_log /var/log/nginx/access.log main;
+        
+        # Performance
+        sendfile on;
+        tcp_nopush on;
+        tcp_nodelay on;
+        keepalive_timeout 65;
+        types_hash_max_size 2048;
+        
+        # Compression
+        gzip on;
+        gzip_vary on;
+        gzip_proxied any;
+        gzip_comp_level 6;
+        gzip_types text/plain text/css text/xml application/json application/javascript 
+                   application/rss+xml application/atom+xml image/svg+xml;
+        
+        # Rate Limiting
+        limit_req_zone $binary_remote_addr zone=api:10m rate=100r/m;
+        limit_conn_zone $binary_remote_addr zone=addr:10m;
+        
+        # Upstream
+        upstream mb7_backend {
+            least_conn;
+            server mb7-mcp-server:8000 max_fails=3 fail_timeout=30s;
+        }
+        
+        server {
+            listen 80;
+            server_name _;
+            
+            # Security Headers
+            add_header X-Frame-Options "SAMEORIGIN" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header X-XSS-Protection "1; mode=block" always;
+            add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+            
+            # Health Check
+            location /health {
+                access_log off;
+                return 200 "healthy\n";
+                add_header Content-Type text/plain;
+            }
+            
+            # API Routes
+            location / {
+                proxy_pass http://mb7_backend;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection 'upgrade';
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_cache_bypass $http_upgrade;
+                proxy_read_timeout 300s;
+                proxy_connect_timeout 75s;
+                
+                # Rate Limiting
+                limit_req zone=api burst=20 nodelay;
+                limit_conn addr 10;
+            }
+            
+            # SSE Endpoint (no timeout)
+            location /mcp/sse {
+                proxy_pass http://mb7_backend;
+                proxy_http_version 1.1;
+                proxy_set_header Connection '';
+                proxy_buffering off;
+                proxy_read_timeout 86400s;
+                proxy_send_timeout 86400s;
+                proxy_cache off;
+            }
+        }
+    }

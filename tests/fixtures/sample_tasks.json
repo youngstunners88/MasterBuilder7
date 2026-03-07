@@ -1,0 +1,94 @@
+{
+  "tasks": [
+    {
+      "type": "analyze_project",
+      "payload": {
+        "project_path": "/home/user/project",
+        "detect_stack": true,
+        "analyze_dependencies": true
+      },
+      "priority": "CRITICAL",
+      "required_capabilities": ["analysis"],
+      "timeout_seconds": 300
+    },
+    {
+      "type": "security_audit",
+      "payload": {
+        "scope": "full",
+        "checks": ["sql_injection", "xss", "csrf", "authentication"],
+        "auto_fix": false
+      },
+      "priority": "HIGH",
+      "required_capabilities": ["security"],
+      "timeout_seconds": 600
+    },
+    {
+      "type": "generate_api",
+      "payload": {
+        "framework": "fastapi",
+        "resources": ["users", "orders", "products"],
+        "include_auth": true,
+        "include_tests": true
+      },
+      "priority": "HIGH",
+      "required_capabilities": ["python", "fastapi"],
+      "timeout_seconds": 900
+    },
+    {
+      "type": "optimize_performance",
+      "payload": {
+        "target": "database_queries",
+        "approach": "index_optimization"
+      },
+      "priority": "NORMAL",
+      "required_capabilities": ["profiling", "optimization"],
+      "timeout_seconds": 600
+    },
+    {
+      "type": "generate_tests",
+      "payload": {
+        "test_type": "unit",
+        "coverage_target": 80,
+        "files": ["src/services.py", "src/models.py"]
+      },
+      "priority": "NORMAL",
+      "required_capabilities": ["testing", "pytest"],
+      "timeout_seconds": 600
+    },
+    {
+      "type": "write_documentation",
+      "payload": {
+        "type": "api_reference",
+        "format": "markdown",
+        "include_examples": true
+      },
+      "priority": "LOW",
+      "required_capabilities": ["docs"],
+      "timeout_seconds": 300
+    },
+    {
+      "type": "design_database",
+      "payload": {
+        "entities": ["User", "Order", "Product", "Category"],
+        "relationships": ["User-Order", "Order-Product", "Product-Category"]
+      },
+      "priority": "HIGH",
+      "required_capabilities": ["schema_design"],
+      "timeout_seconds": 600
+    },
+    {
+      "type": "setup_deployment",
+      "payload": {
+        "platform": "kubernetes",
+        "environment": "production",
+        "scaling": {
+          "min_replicas": 2,
+          "max_replicas": 10
+        }
+      },
+      "priority": "NORMAL",
+      "required_capabilities": ["kubernetes", "docker"],
+      "timeout_seconds": 900
+    }
+  ]
+}

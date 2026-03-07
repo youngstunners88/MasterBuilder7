@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mb7-mcp-server
+  namespace: mb7
+spec:
+  template:
+    spec:
+      containers:
+      - name: mcp-server
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 1Gi
+          limits:
+            cpu: 4000m
+            memory: 4Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mb7-agent-worker
+  namespace: mb7
+spec:
+  template:
+    spec:
+      containers:
+      - name: agent-worker
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 2Gi
+          limits:
+            cpu: 4000m
+            memory: 8Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mb7-postgres
+  namespace: mb7
+spec:
+  template:
+    spec:
+      containers:
+      - name: postgres
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 2Gi
+          limits:
+            cpu: 4000m
+            memory: 8Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mb7-redis
+  namespace: mb7
+spec:
+  template:
+    spec:
+      containers:
+      - name: redis
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 2000m
+            memory: 4Gi

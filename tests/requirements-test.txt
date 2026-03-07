@@ -1,0 +1,32 @@
+# Test Requirements for MasterBuilder7
+# Install with: pip install -r requirements-test.txt
+
+# Core testing framework
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-xdist>=3.3.0
+pytest-timeout>=2.1.0
+
+# Mocking
+pytest-mock>=3.11.0
+aioresponses>=0.7.4
+
+# Performance testing
+pytest-benchmark>=4.0.0
+
+# Code quality
+flake8>=6.1.0
+black>=23.7.0
+mypy>=1.5.0
+
+# Type stubs
+types-python-dateutil>=2.8.0
+types-PyYAML>=6.0.0
+
+# Test data generation
+factory-boy>=3.3.0
+faker>=19.0.0
+
+# Coverage reporting
+coverage>=7.3.0

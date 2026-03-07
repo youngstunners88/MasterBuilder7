@@ -1,0 +1,16 @@
+# =============================================================================
+# MasterBuilder7 - Grafana Dashboard Configuration
+# =============================================================================
+
+apiVersion: 1
+
+providers:
+  - name: 'MasterBuilder7'
+    orgId: 1
+    folder: 'MasterBuilder7'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

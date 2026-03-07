@@ -1,0 +1,124 @@
+# Grafana Data Sources Configuration
+apiVersion: 1
+
+# Delete default datasources if needed
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1
+
+# Datasources
+datasources:
+  # Prometheus - Metrics
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    orgId: 1
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST
+      manageAlerts: true
+      alertmanagerUid: alertmanager
+      prometheusType: Prometheus
+      cacheLevel: 'High'
+      incrementalQuerying: true
+      incrementalQueryOverlapWindow: 10m
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+          urlDisplayLabel: 'View Trace'
+
+  # Loki - Logs
+  - name: Loki
+    type: loki
+    access: proxy
+    orgId: 1
+    url: http://loki:3100
+    editable: true
+    jsonData:
+      timeout: 300
+      maxLines: 1000
+      derivedFields:
+        - name: TraceID
+          matcherRegex: '"trace_id":"([^"]+)"'
+          url: '$${__value.raw}'
+          datasourceUid: tempo
+          urlDisplayLabel: 'View Trace'
+        - name: BuildID
+          matcherRegex: '"build_id":"([^"]+)"'
+          urlDisplayLabel: 'View Build'
+        - name: Agent
+          matcherRegex: '"agent_name":"([^"]+)"'
+          urlDisplayLabel: 'Agent: $${__value.raw}'
+
+  # Tempo - Traces
+  - name: Tempo
+    type: tempo
+    access: proxy
+    orgId: 1
+    url: http://tempo:3200
+    editable: true
+    jsonData:
+      httpMethod: GET
+      tracesToLogs:
+        datasourceUid: loki
+        spanStartTimeShift: '-1h'
+        spanEndTimeShift: '1h'
+        tags: ['agent_name', 'build_id', 'level']
+        filterByTraceID: true
+        filterBySpanID: true
+        lokiSearch: true
+      tracesToMetrics:
+        datasourceUid: prometheus
+        spanStartTimeShift: '-1h'
+        spanEndTimeShift: '1h'
+        tags: [{ key: 'agent_name', value: 'agent_name' }]
+      serviceMap:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true
+      search:
+        hide: false
+      lokiSearch:
+        datasourceUid: loki
+      traceQuery:
+        timeShiftEnabled: true
+        spanStartTimeShift: '-1h'
+        spanEndTimeShift: '1h'
+      spanBar:
+        type: 'Tag'
+        tag: 'http.path'
+
+  # Alertmanager
+  - name: Alertmanager
+    type: alertmanager
+    uid: alertmanager
+    access: proxy
+    orgId: 1
+    url: http://alertmanager:9093
+    editable: true
+    jsonData:
+      implementation: prometheus
+
+  # Jaeger (via Tempo)
+  - name: Jaeger
+    type: jaeger
+    access: proxy
+    orgId: 1
+    url: http://tempo:16686
+    editable: true
+    jsonData:
+      tracesToLogs:
+        datasourceUid: loki
+      tracesToMetrics:
+        datasourceUid: prometheus
+
+  # Zipkin (via Tempo)
+  - name: Zipkin
+    type: zipkin
+    access: proxy
+    orgId: 1
+    url: http://tempo:9411
+    editable: true

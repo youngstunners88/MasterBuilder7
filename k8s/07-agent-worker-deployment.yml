@@ -1,0 +1,389 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mb7-agent-worker
+  namespace: mb7
+  labels:
+    app.kubernetes.io/name: agent-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: masterbuilder7
+spec:
+  replicas: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 50%
+      maxUnavailable: 25%
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-worker
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-worker
+        app.kubernetes.io/component: worker
+        app.kubernetes.io/part-of: masterbuilder7
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      serviceAccountName: mb7-worker-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                  - agent-worker
+              topologyKey: kubernetes.io/hostname
+      initContainers:
+      - name: wait-for-api
+        image: busybox:1.36
+        command:
+        - sh
+        - -c
+        - |
+          echo "Waiting for MCP Server..."
+          until wget -qO- http://mb7-mcp-server:8000/health | grep -q healthy; do
+            sleep 2
+          done
+          echo "MCP Server is ready!"
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 50m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 65534
+          capabilities:
+            drop:
+            - ALL
+      containers:
+      - name: agent-worker
+        image: masterbuilder7/agent-worker:latest
+        imagePullPolicy: Always
+        command:
+        - python
+        - -m
+        - worker
+        args:
+        - --queue
+        - "agent-tasks"
+        - --concurrency
+        - "4"
+        - --prefetch-multiplier
+        - "1"
+        ports:
+        - name: metrics
+          containerPort: 9090
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: mb7-config
+        - secretRef:
+            name: mb7-secrets
+        env:
+        - name: WORKER_TYPE
+          value: "agent"
+        - name: WORKER_CONCURRENCY
+          value: "4"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: AGENT_HEARTBEAT_URL
+          value: "http://mb7-mcp-server:8000/mcp/status"
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: metrics
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+          successThreshold: 1
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: metrics
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        startupProbe:
+          httpGet:
+            path: /health
+            port: metrics
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: workspace
+          mountPath: /workspace
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - |
+                echo "Draining worker..."
+                sleep 15
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 2Gi
+      - name: workspace
+        emptyDir:
+          sizeLimit: 10Gi
+      terminationGracePeriodSeconds: 120
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mb7-build-worker
+  namespace: mb7
+  labels:
+    app.kubernetes.io/name: build-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: masterbuilder7
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 50%
+      maxUnavailable: 25%
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: build-worker
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: build-worker
+        app.kubernetes.io/component: worker
+        app.kubernetes.io/part-of: masterbuilder7
+    spec:
+      serviceAccountName: mb7-worker-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                  - build-worker
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: build-worker
+        image: masterbuilder7/agent-worker:latest
+        imagePullPolicy: Always
+        command:
+        - python
+        - -m
+        - worker
+        args:
+        - --queue
+        - "build-tasks"
+        - --concurrency
+        - "2"
+        envFrom:
+        - configMapRef:
+            name: mb7-config
+        - secretRef:
+            name: mb7-secrets
+        env:
+        - name: WORKER_TYPE
+          value: "build"
+        - name: WORKER_CONCURRENCY
+          value: "2"
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 2Gi
+          limits:
+            cpu: 4000m
+            memory: 8Gi
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: workspace
+          mountPath: /workspace
+        - name: build-cache
+          mountPath: /cache
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 5Gi
+      - name: workspace
+        emptyDir:
+          sizeLimit: 20Gi
+      - name: build-cache
+        emptyDir:
+          sizeLimit: 10Gi
+      terminationGracePeriodSeconds: 180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mb7-security-worker
+  namespace: mb7
+  labels:
+    app.kubernetes.io/name: security-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: masterbuilder7
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 50%
+      maxUnavailable: 25%
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: security-worker
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: security-worker
+        app.kubernetes.io/component: worker
+        app.kubernetes.io/part-of: masterbuilder7
+    spec:
+      serviceAccountName: mb7-worker-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: security-worker
+        image: masterbuilder7/agent-worker:latest
+        imagePullPolicy: Always
+        command:
+        - python
+        - -m
+        - worker
+        args:
+        - --queue
+        - "security-tasks"
+        - --concurrency
+        - "1"
+        envFrom:
+        - configMapRef:
+            name: mb7-config
+        - secretRef:
+            name: mb7-secrets
+        env:
+        - name: WORKER_TYPE
+          value: "security"
+        - name: WORKER_CONCURRENCY
+          value: "1"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: workspace
+          mountPath: /workspace
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 1Gi
+      - name: workspace
+        emptyDir:
+          sizeLimit: 5Gi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mb7-agent-worker-pdb
+  namespace: mb7
+  labels:
+    app.kubernetes.io/name: agent-worker
+    app.kubernetes.io/component: worker
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-worker
+      app.kubernetes.io/component: worker
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mb7-build-worker-pdb
+  namespace: mb7
+  labels:
+    app.kubernetes.io/name: build-worker
+    app.kubernetes.io/component: worker
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: build-worker
+      app.kubernetes.io/component: worker

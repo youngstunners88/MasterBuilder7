@@ -1,0 +1,171 @@
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: mb7-nginx
+  labels:
+    app.kubernetes.io/name: nginx
+    app.kubernetes.io/component: ingress
+spec:
+  controller: k8s.io/ingress-nginx
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mb7-ingress
+  namespace: mb7
+  labels:
+    app.kubernetes.io/name: masterbuilder7
+    app.kubernetes.io/component: ingress
+  annotations:
+    # NGINX Ingress Controller annotations
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "300"
+    
+    # CORS configuration
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+    
+    # Rate limiting
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    
+    # Compression
+    nginx.ingress.kubernetes.io/server-snippet: |
+      gzip on;
+      gzip_vary on;
+      gzip_proxied any;
+      gzip_comp_level 6;
+      gzip_types text/plain text/css text/xml application/json application/javascript application/rss+xml application/atom+xml image/svg+xml;
+    
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header X-Frame-Options "SAMEORIGIN" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header X-XSS-Protection "1; mode=block" always;
+      add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+      add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+    
+    # Certificate management (cert-manager)
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Or use: cert-manager.io/issuer: "mb7-issuer" for namespace-scoped issuer
+    
+    # AWS ALB specific (if using AWS Load Balancer Controller)
+    # alb.ingress.kubernetes.io/scheme: internet-facing
+    # alb.ingress.kubernetes.io/target-type: ip
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    
+    # GCP GCE specific (if using GCE Ingress)
+    # kubernetes.io/ingress.class: gce
+    # kubernetes.io/ingress.global-static-ip-name: mb7-static-ip
+    
+    # Azure specific (if using Azure Application Gateway)
+    # kubernetes.io/ingress.class: azure/application-gateway
+    # appgw.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: mb7-nginx
+  tls:
+  - hosts:
+    - api.masterbuilder7.io
+    - mb7.example.com  # Replace with your domain
+    secretName: mb7-tls
+  rules:
+  - host: api.masterbuilder7.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: mb7-mcp-server
+            port:
+              number: 8000
+  - host: mb7.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: mb7-mcp-server
+            port:
+              number: 8000
+      - path: /grafana
+        pathType: Prefix
+        backend:
+          service:
+            name: mb7-grafana
+            port:
+              number: 3000
+      - path: /prometheus
+        pathType: Prefix
+        backend:
+          service:
+            name: mb7-prometheus
+            port:
+              number: 9090
+---
+# Alternative: Separate ingress for internal/monitoring endpoints
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mb7-internal-ingress
+  namespace: mb7
+  labels:
+    app.kubernetes.io/name: masterbuilder7
+    app.kubernetes.io/component: internal-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+    # Internal-only access via VPN or internal network
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: mb7-nginx
+  tls:
+  - hosts:
+    - internal.mb7.example.com
+    secretName: mb7-internal-tls
+  rules:
+  - host: internal.mb7.example.com
+    http:
+      paths:
+      - path: /prometheus
+        pathType: Prefix
+        backend:
+          service:
+            name: mb7-prometheus
+            port:
+              number: 9090
+      - path: /grafana
+        pathType: Prefix
+        backend:
+          service:
+            name: mb7-grafana
+            port:
+              number: 3000
+---
+# Certificate resource for cert-manager
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: mb7-cert
+  namespace: mb7
+  labels:
+    app.kubernetes.io/name: masterbuilder7
+    app.kubernetes.io/component: certificate
+spec:
+  secretName: mb7-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+  - api.masterbuilder7.io
+  - mb7.example.com
+  # Add additional domains as needed

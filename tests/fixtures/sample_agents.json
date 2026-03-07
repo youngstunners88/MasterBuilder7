@@ -1,0 +1,60 @@
+{
+  "agents": [
+    {
+      "id": "agent-001",
+      "type": "meta_router",
+      "capabilities": ["analysis", "routing", "coordination"],
+      "max_concurrent_tasks": 4,
+      "priority": "high"
+    },
+    {
+      "id": "agent-002",
+      "type": "security_auditor",
+      "capabilities": ["security", "penetration_testing", "compliance"],
+      "max_concurrent_tasks": 2,
+      "priority": "critical"
+    },
+    {
+      "id": "agent-003",
+      "type": "code_generator",
+      "capabilities": ["python", "fastapi", "react", "typescript"],
+      "max_concurrent_tasks": 8,
+      "priority": "high"
+    },
+    {
+      "id": "agent-004",
+      "type": "performance_optimizer",
+      "capabilities": ["profiling", "optimization", "caching"],
+      "max_concurrent_tasks": 4,
+      "priority": "normal"
+    },
+    {
+      "id": "agent-005",
+      "type": "test_generator",
+      "capabilities": ["unit_tests", "integration_tests", "e2e_tests"],
+      "max_concurrent_tasks": 6,
+      "priority": "normal"
+    },
+    {
+      "id": "agent-006",
+      "type": "documentation_writer",
+      "capabilities": ["docs", "api_documentation", "readme"],
+      "max_concurrent_tasks": 4,
+      "priority": "low"
+    },
+    {
+      "id": "agent-007",
+      "type": "database_designer",
+      "capabilities": ["schema_design", "migrations", "optimization"],
+      "max_concurrent_tasks": 3,
+      "priority": "normal"
+    },
+    {
+      "id": "agent-008",
+      "type": "devops_engineer",
+      "capabilities": ["docker", "kubernetes", "ci_cd", "terraform"],
+      "max_concurrent_tasks": 4,
+      "priority": "normal"
+    }
+  ]
+}

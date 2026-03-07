@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mb7-dev
+
+resources:
+- ../../
+
+namePrefix: dev-
+
+commonLabels:
+  environment: development
+
+patchesStrategicMerge:
+- replica-patch.yml
+- nodeport-service.yml
+
+configMapGenerator:
+- name: mb7-config
+  behavior: merge
+  literals:
+  - LOG_LEVEL=DEBUG
+  - YOLO_SAFETY_THRESHOLD=0.4
+  - FEATURE_AUTO_ROLLBACK=false
+  - FEATURE_SECURITY_AUDIT=false

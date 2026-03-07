@@ -1,0 +1,206 @@
+# MasterBuilder7 - Alertmanager Configuration
+# Alert routing and notification management
+
+global:
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'alerts@masterbuilder7.local'
+  smtp_auth_username: ''
+  smtp_auth_password: ''
+  slack_api_url: '${SLACK_WEBHOOK_URL}'
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+  opsgenie_api_url: 'https://api.opsgenie.com/'
+  telegram_api_url: 'https://api.telegram.org'
+  resolve_timeout: 5m
+
+# Templates for notification messages
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Inhibition rules - prevent alert spam
+inhibit_rules:
+  # If a critical alert fires, suppress warning alerts for same service
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'agent_name', 'instance']
+  
+  # If a page alert fires, suppress notification alerts
+  - source_match:
+      severity: 'page'
+    target_match:
+      severity: 'notify'
+    equal: ['alertname']
+
+# Route configuration - determines where alerts go
+route:
+  group_by: ['alertname', 'cluster', 'service', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'default'
+  routes:
+    # Critical alerts - immediate notification
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 0s
+      repeat_interval: 15m
+      continue: true
+    
+    # Agent-specific alerts
+    - match_re:
+        agent_name: .+
+      receiver: 'agent-team'
+      group_by: ['agent_name', 'severity']
+      group_wait: 1m
+    
+    # Build failures
+    - match:
+        alertname: BuildFailureRateHigh
+      receiver: 'dev-team'
+      group_wait: 0s
+      repeat_interval: 30m
+    
+    # Cost alerts
+    - match:
+        category: cost
+      receiver: 'cost-team'
+      group_wait: 5m
+      repeat_interval: 24h
+    
+    # Health check failures
+    - match:
+        alertname: AgentHealthCheckFailed
+      receiver: 'sre-team'
+      group_wait: 0s
+      repeat_interval: 10m
+    
+    # Queue depth alerts
+    - match:
+        alertname: QueueDepthHigh
+      receiver: 'operations-team'
+      group_wait: 2m
+
+# Receivers - where alerts are sent
+receivers:
+  # Default receiver - log only
+  - name: 'default'
+    webhook_configs:
+      - url: 'http://logger:8080/alerts'
+        send_resolved: true
+
+  # Critical alerts - multiple channels
+  - name: 'critical-alerts'
+    email_configs:
+      - to: 'sre-oncall@masterbuilder7.local'
+        subject: 'CRITICAL: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        body: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Severity: {{ .Labels.severity }}
+          Agent: {{ .Labels.agent_name }}
+          Time: {{ .StartsAt }}
+          {{ end }}
+    slack_configs:
+      - channel: '#critical-alerts'
+        title: '🔴 Critical Alert'
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          Agent: {{ .Labels.agent_name }}
+          Instance: {{ .Labels.instance }}
+          {{ end }}
+        send_resolved: true
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SERVICE_KEY}'
+        severity: critical
+        description: '{{ .GroupLabels.alertname }}'
+        details:
+          agent: '{{ .GroupLabels.agent_name }}'
+          summary: '{{ .CommonAnnotations.summary }}'
+
+  # Agent team notifications
+  - name: 'agent-team'
+    slack_configs:
+      - channel: '#agent-alerts'
+        title: '{{ .GroupLabels.agent_name }} Alert'
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          Severity: {{ .Labels.severity }}
+          {{ end }}
+        send_resolved: true
+    email_configs:
+      - to: 'agents@masterbuilder7.local'
+        subject: 'Agent Alert: {{ .GroupLabels.agent_name }}'
+
+  # Dev team notifications
+  - name: 'dev-team'
+    slack_configs:
+      - channel: '#build-alerts'
+        title: '🏗️ Build Alert'
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          Build Success Rate: {{ .Labels.success_rate }}%
+          {{ end }}
+    email_configs:
+      - to: 'dev-team@masterbuilder7.local'
+        subject: 'Build Alert: High Failure Rate Detected'
+
+  # Cost team notifications
+  - name: 'cost-team'
+    slack_configs:
+      - channel: '#cost-alerts'
+        title: '💰 Cost Alert'
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          Current: {{ .Labels.current_value }}
+          Threshold: {{ .Labels.threshold }}
+          {{ end }}
+    email_configs:
+      - to: 'finance@masterbuilder7.local'
+        subject: 'Cost Alert: Budget Threshold Exceeded'
+
+  # SRE team notifications
+  - name: 'sre-team'
+    slack_configs:
+      - channel: '#sre-alerts'
+        title: '🔧 Health Check Alert'
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          Agent: {{ .Labels.agent_name }}
+          Status: {{ .Labels.status }}
+          {{ end }}
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SERVICE_KEY}'
+        severity: error
+        description: 'Health Check Failed: {{ .GroupLabels.agent_name }}'
+
+  # Operations team notifications
+  - name: 'operations-team'
+    slack_configs:
+      - channel: '#ops-alerts'
+        title: '📊 Queue Alert'
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          Queue Depth: {{ .Labels.queue_depth }}
+          Processing Time: {{ .Labels.processing_time }}
+          {{ end }}
+
+  # Webhook receiver for custom integrations
+  - name: 'webhook-receiver'
+    webhook_configs:
+      - url: 'http://masterbuilder7-api:8000/webhooks/alerts'
+        send_resolved: true
+        http_config:
+          bearer_token: '${WEBHOOK_SECRET_TOKEN}'

@@ -1,0 +1,113 @@
+# =============================================================================
+# MasterBuilder7 Agent Worker Dockerfile
+# Scalable worker containers for distributed agent processing
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Stage 1: Builder
+# -----------------------------------------------------------------------------
+FROM python:3.11-slim as builder
+
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    g++ \
+    libpq-dev \
+    libffi-dev \
+    libssl-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Upgrade pip
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# Copy and install requirements
+COPY apex/requirements.txt /build/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install worker-specific dependencies
+RUN pip install --no-cache-dir \
+    celery>=5.3.0 \
+    redis>=5.0.0 \
+    flower>=2.0.0
+
+# -----------------------------------------------------------------------------
+# Stage 2: Production Worker
+# -----------------------------------------------------------------------------
+FROM python:3.11-slim as production
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONFAULTHANDLER=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    APP_HOME=/app \
+    PYTHONPATH=/app \
+    WORKER_TYPE=agent \
+    WORKER_CONCURRENCY=4
+
+WORKDIR ${APP_HOME}
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    libffi8 \
+    libssl3 \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy virtual environment
+COPY --from=builder /opt/venv /opt/venv
+
+# Create non-root user
+RUN groupadd --gid 1000 appgroup && \
+    useradd --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser
+
+# Create directories
+RUN mkdir -p ${APP_HOME}/logs ${APP_HOME}/data && \
+    chown -R appuser:appgroup ${APP_HOME}
+
+# Copy application code
+COPY --chown=appuser:appgroup apex/ ${APP_HOME}/apex/
+COPY --chown=appuser:appgroup core/ ${APP_HOME}/core/ 2>/dev/null || true
+COPY --chown=appuser:appgroup agents/ ${APP_HOME}/agents/ 2>/dev/null || true
+
+# Copy worker scripts
+COPY --chown=appuser:appgroup docker/scripts/worker-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python -c "import sys; sys.exit(0)" || exit 1
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["agent-worker"]
+
+# -----------------------------------------------------------------------------
+# Stage 3: Task Queue Worker (Celery)
+# -----------------------------------------------------------------------------
+FROM production as celery-worker
+
+ENV WORKER_TYPE=celery \
+    CELERY_QUEUE=default \
+    CELERY_LOG_LEVEL=INFO
+
+CMD ["celery-worker"]
+
+# -----------------------------------------------------------------------------
+# Stage 4: Flower Monitor
+# -----------------------------------------------------------------------------
+FROM production as flower
+
+EXPOSE 5555
+
+CMD ["flower"]

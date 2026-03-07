@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mb7
+
+resources:
+- ../../
+
+commonLabels:
+  environment: production
+
+patchesStrategicMerge:
+- replica-patch.yml
+- resource-patch.yml
+
+configMapGenerator:
+- name: mb7-config
+  behavior: merge
+  literals:
+  - LOG_LEVEL=WARN
+  - YOLO_SAFETY_THRESHOLD=0.8
+  - FEATURE_AUTO_ROLLBACK=true
+
+secretGenerator:
+- name: mb7-secrets
+  behavior: merge
+  envs:
+  - secrets.env

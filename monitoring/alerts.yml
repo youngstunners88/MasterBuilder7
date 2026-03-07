@@ -1,0 +1,421 @@
+# MasterBuilder7 - Prometheus Alert Rules
+# Comprehensive alerting for 8-agent build system
+
+groups:
+  # ===========================================
+  # AGENT HEALTH ALERTS
+  # ===========================================
+  - name: agent_health
+    interval: 30s
+    rules:
+      # Agent is down / not reporting
+      - alert: AgentDown
+        expr: up{job="agent-metrics"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: health
+        annotations:
+          summary: "Agent {{ $labels.agent_name }} is down"
+          description: "Agent {{ $labels.agent_name }} has not reported metrics for more than 1 minute."
+          runbook_url: "https://wiki.masterbuilder7.local/runbooks/agent-down"
+
+      # Agent health check endpoint failing
+      - alert: AgentHealthCheckFailed
+        expr: agent_health_score < 50
+        for: 2m
+        labels:
+          severity: critical
+          category: health
+        annotations:
+          summary: "Agent {{ $labels.agent_name }} health score critical"
+          description: "Health score for {{ $labels.agent_name }} is {{ $value }}% (below 50%)."
+          remediation: "Check agent logs and restart if necessary"
+
+      # Agent heartbeat missing
+      - alert: AgentHeartbeatMissing
+        expr: time() - agent_last_heartbeat > 120
+        for: 30s
+        labels:
+          severity: warning
+          category: health
+        annotations:
+          summary: "Missing heartbeat from {{ $labels.agent_name }}"
+          description: "No heartbeat received from {{ $labels.agent_name }} for {{ $value }} seconds."
+
+      # Agent memory usage high
+      - alert: AgentMemoryUsageHigh
+        expr: (agent_memory_usage_bytes / agent_memory_limit_bytes) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          category: health
+        annotations:
+          summary: "High memory usage on {{ $labels.agent_name }}"
+          description: "Memory usage is {{ $value | humanizePercentage }} on agent {{ $labels.agent_name }}."
+
+      # Agent CPU usage high
+      - alert: AgentCPUUsageHigh
+        expr: agent_cpu_usage_percent > 80
+        for: 5m
+        labels:
+          severity: warning
+          category: health
+        annotations:
+          summary: "High CPU usage on {{ $labels.agent_name }}"
+          description: "CPU usage is {{ $value }}% on agent {{ $labels.agent_name }}."
+
+  # ===========================================
+  # BUILD METRICS ALERTS
+  # ===========================================
+  - name: build_metrics
+    interval: 1m
+    rules:
+      # Build success rate low
+      - alert: BuildFailureRateHigh
+        expr: |
+          (
+            sum(rate(build_total{status="failed"}[5m])) 
+            / 
+            sum(rate(build_total[5m]))
+          ) > 0.15
+        for: 5m
+        labels:
+          severity: critical
+          category: build
+        annotations:
+          summary: "High build failure rate detected"
+          description: "Build failure rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+          runbook_url: "https://wiki.masterbuilder7.local/runbooks/build-failures"
+
+      # Build duration too long
+      - alert: BuildDurationTooLong
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(build_duration_seconds_bucket[5m])) by (le, agent_name)
+          ) > 600
+        for: 10m
+        labels:
+          severity: warning
+          category: build
+        annotations:
+          summary: "Build duration too long for {{ $labels.agent_name }}"
+          description: "95th percentile build time is {{ $value | humanizeDuration }} for agent {{ $labels.agent_name }}."
+
+      # Build queue backing up
+      - alert: BuildQueueBacklog
+        expr: build_queue_depth > 50
+        for: 5m
+        labels:
+          severity: warning
+          category: build
+        annotations:
+          summary: "Build queue backlog detected"
+          description: "Build queue depth is {{ $value }} builds."
+
+      # Stuck builds
+      - alert: BuildsStuck
+        expr: |
+          count by (agent_name) (
+            build_status == 1 and 
+            time() - build_start_time > 1800
+          ) > 0
+        for: 2m
+        labels:
+          severity: warning
+          category: build
+        annotations:
+          summary: "Stuck builds detected on {{ $labels.agent_name }}"
+          description: "{{ $value }} builds have been running for > 30 minutes."
+
+      # Build output size anomaly
+      - alert: BuildOutputSizeAnomaly
+        expr: |
+          (
+            build_output_size_bytes 
+            > 
+            avg_over_time(build_output_size_bytes[1h]) * 3
+          ) and (
+            build_output_size_bytes > 1073741824
+          )
+        for: 5m
+        labels:
+          severity: info
+          category: build
+        annotations:
+          summary: "Unusual build output size"
+          description: "Build output size {{ $value | humanize1024 }}B is 3x average."
+
+  # ===========================================
+  # COST TRACKING ALERTS
+  # ===========================================
+  - name: cost_tracking
+    interval: 5m
+    rules:
+      # Daily budget exceeded
+      - alert: DailyBudgetExceeded
+        expr: cost_daily_total_usd > cost_daily_budget_usd
+        for: 0m
+        labels:
+          severity: warning
+          category: cost
+        annotations:
+          summary: "Daily budget exceeded"
+          description: "Daily cost ${{ $value }} exceeds budget of ${{ $labels.budget }}."
+          current_value: "${{ $value }}"
+          threshold: "${{ $labels.budget }}"
+
+      # Cost per build too high
+      - alert: CostPerBuildHigh
+        expr: |
+          (
+            cost_agent_total_usd 
+            / 
+            increase(build_total{status="success"}[1h])
+          ) > 5
+        for: 15m
+        labels:
+          severity: warning
+          category: cost
+        annotations:
+          summary: "High cost per build for {{ $labels.agent_name }}"
+          description: "Average cost per build is ${{ $value }} for agent {{ $labels.agent_name }}."
+
+      # Cost spike detected
+      - alert: CostSpikeDetected
+        expr: |
+          (
+            cost_hourly_usd 
+            > 
+            2 * avg_over_time(cost_hourly_usd[24h])
+          )
+        for: 30m
+        labels:
+          severity: info
+          category: cost
+        annotations:
+          summary: "Cost spike detected"
+          description: "Hourly cost ${{ $value }} is 2x the 24h average."
+
+      # Monthly forecast exceeding budget
+      - alert: MonthlyCostForecastHigh
+        expr: |
+          (
+            cost_monthly_running_total_usd 
+            / 
+            day_of_month()
+          ) * 30 > cost_monthly_budget_usd * 1.2
+        for: 1h
+        labels:
+          severity: warning
+          category: cost
+        annotations:
+          summary: "Monthly cost forecast exceeds budget"
+          description: "Projected monthly cost is 120%+ of budget."
+
+  # ===========================================
+  # QUEUE & PROCESSING ALERTS
+  # ===========================================
+  - name: queue_processing
+    interval: 30s
+    rules:
+      # Queue depth high
+      - alert: QueueDepthHigh
+        expr: queue_depth > 100
+        for: 2m
+        labels:
+          severity: warning
+          category: queue
+        annotations:
+          summary: "Queue depth high: {{ $labels.queue_name }}"
+          description: "Queue {{ $labels.queue_name }} has {{ $value }} items."
+          queue_depth: "{{ $value }}"
+
+      # Processing time too high
+      - alert: ProcessingTimeHigh
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(queue_processing_duration_seconds_bucket[5m])) by (le, queue_name)
+          ) > 300
+        for: 5m
+        labels:
+          severity: warning
+          category: queue
+        annotations:
+          summary: "High processing time for {{ $labels.queue_name }}"
+          description: "95th percentile processing time is {{ $value }}s."
+          processing_time: "{{ $value }}s"
+
+      # Queue consumer lag
+      - alert: QueueConsumerLag
+        expr: |
+          (
+            rate(queue_messages_published_total[5m]) 
+            - 
+            rate(queue_messages_consumed_total[5m])
+          ) > 10
+        for: 5m
+        labels:
+          severity: critical
+          category: queue
+        annotations:
+          summary: "Consumer lag on {{ $labels.queue_name }}"
+          description: "Messages are being produced faster than consumed."
+
+      # Dead letter queue growing
+      - alert: DeadLetterQueueGrowing
+        expr: rate(queue_dlq_messages_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          category: queue
+        annotations:
+          summary: "Dead letter queue growing"
+          description: "DLQ is receiving {{ $value }} messages/sec."
+
+  # ===========================================
+  # ERROR RATE ALERTS
+  # ===========================================
+  - name: error_rates
+    interval: 30s
+    rules:
+      # High error rate
+      - alert: ErrorRateHigh
+        expr: |
+          (
+            sum(rate(agent_errors_total[5m])) by (agent_name)
+            /
+            sum(rate(agent_requests_total[5m])) by (agent_name)
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          category: errors
+        annotations:
+          summary: "High error rate on {{ $labels.agent_name }}"
+          description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.agent_name }}."
+
+      # API error rate high
+      - alert: APIErrorRateHigh
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.01
+        for: 3m
+        labels:
+          severity: critical
+          category: errors
+        annotations:
+          summary: "High API error rate"
+          description: "API 5xx error rate is {{ $value | humanizePercentage }}."
+
+      # Specific error spike
+      - alert: SpecificErrorSpike
+        expr: |
+          increase(agent_errors_total{severity="error"}[10m]) > 10
+        for: 0m
+        labels:
+          severity: warning
+          category: errors
+        annotations:
+          summary: "Error spike detected on {{ $labels.agent_name }}"
+          description: "{{ $value }} errors in the last 10 minutes."
+
+  # ===========================================
+  # INFRASTRUCTURE ALERTS
+  # ===========================================
+  - name: infrastructure
+    interval: 30s
+    rules:
+      # Disk space low
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.1
+        for: 5m
+        labels:
+          severity: critical
+          category: infrastructure
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Disk usage is above 90% on {{ $labels.mountpoint }}."
+
+      # Memory pressure
+      - alert: MemoryPressure
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.9
+        for: 5m
+        labels:
+          severity: critical
+          category: infrastructure
+        annotations:
+          summary: "Memory pressure on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value | humanizePercentage }}."
+
+      # CPU load high
+      - alert: CPULoadHigh
+        expr: node_load1 > (count by (instance) (node_cpu_seconds_total{mode="idle"}) * 2)
+        for: 10m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "High CPU load on {{ $labels.instance }}"
+          description: "Load average is {{ $value }}, exceeding 2x CPU count."
+
+      # Container restart loop
+      - alert: ContainerRestartLoop
+        expr: rate(container_restarts_total[15m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "Container restart loop detected"
+          description: "Container {{ $labels.name }} is restarting frequently."
+
+  # ===========================================
+  # BUSINESS METRICS ALERTS
+  # ===========================================
+  - name: business_metrics
+    interval: 5m
+    rules:
+      # No builds in last hour
+      - alert: NoBuildsInLastHour
+        expr: sum(increase(build_total[1h])) == 0
+        for: 0m
+        labels:
+          severity: info
+          category: business
+        annotations:
+          summary: "No builds in the last hour"
+          description: "System has not processed any builds in the last hour."
+
+      # Agent utilization low
+      - alert: AgentUtilizationLow
+        expr: |
+          (
+            avg_over_time(agent_active_builds[1h])
+          ) / agent_max_concurrent_builds < 0.1
+        for: 1h
+        labels:
+          severity: info
+          category: business
+        annotations:
+          summary: "Low agent utilization: {{ $labels.agent_name }}"
+          description: "Agent utilization is below 10% over the last hour."
+
+      # Success rate below SLA
+      - alert: SuccessRateBelowSLA
+        expr: |
+          (
+            sum(rate(build_total{status="success"}[1h]))
+            /
+            sum(rate(build_total[1h]))
+          ) < 0.95
+        for: 15m
+        labels:
+          severity: critical
+          category: business
+        annotations:
+          summary: "Build success rate below SLA"
+          description: "Success rate is {{ $value | humanizePercentage }}, below 95% SLA."

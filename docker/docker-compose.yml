@@ -1,0 +1,342 @@
+# =============================================================================
+# MasterBuilder7 - Full Stack Docker Compose
+# Development and local testing configuration
+# =============================================================================
+
+version: '3.8'
+
+x-default-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+    labels: "service_name"
+
+services:
+  # ---------------------------------------------------------------------------
+  # MCP Server - Main API Service
+  # ---------------------------------------------------------------------------
+  mcp-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: production
+    container_name: mb7-mcp-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"   # HTTP MCP Server
+      - "8000:8000"   # Alternative API
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/masterbuilder7
+      - REDIS_URL=redis://redis:6379/0
+      - MCP_SERVER_HOST=0.0.0.0
+      - MCP_SERVER_PORT=8080
+      - API_KEY=${API_KEY:-dev-api-key}
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key}
+      - ENABLE_METRICS=true
+      - METRICS_PORT=9090
+    volumes:
+      - mb7-data:/app/data
+      - mb7-logs:/app/logs
+      - mb7-checkpoints:/app/checkpoints
+    networks:
+      - mb7-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # ---------------------------------------------------------------------------
+  # Agent Workers - Scalable Worker Pool
+  # ---------------------------------------------------------------------------
+  agent-workers:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agent
+      target: production
+    container_name: mb7-agent-workers
+    restart: unless-stopped
+    environment:
+      - WORKER_TYPE=agent
+      - WORKER_CONCURRENCY=4
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/masterbuilder7
+      - REDIS_URL=redis://redis:6379/0
+      - MCP_SERVER_URL=http://mcp-server:8080
+      - LOG_LEVEL=INFO
+    volumes:
+      - mb7-data:/app/data
+      - mb7-logs:/app/logs
+    networks:
+      - mb7-network
+    depends_on:
+      - mcp-server
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging: *default-logging
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # ---------------------------------------------------------------------------
+  # Celery Worker - Background Task Processing
+  # ---------------------------------------------------------------------------
+  celery-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agent
+      target: celery-worker
+    container_name: mb7-celery-worker
+    restart: unless-stopped
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - CELERY_QUEUE=default
+      - CELERY_LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/masterbuilder7
+    volumes:
+      - mb7-data:/app/data
+      - mb7-logs:/app/logs
+    networks:
+      - mb7-network
+    depends_on:
+      - redis
+      - postgres
+    healthcheck:
+      test: ["CMD", "celery", "-A", "apex.agents.task_queue", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # Flower - Celery Task Monitor
+  # ---------------------------------------------------------------------------
+  flower:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agent
+      target: flower
+    container_name: mb7-flower
+    restart: unless-stopped
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - FLOWER_PORT=5555
+      - FLOWER_BASIC_AUTH=${FLOWER_AUTH:-admin:admin}
+    networks:
+      - mb7-network
+    depends_on:
+      - redis
+      - celery-worker
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5555/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL - Primary Database
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: mb7-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=masterbuilder7
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d:ro
+    networks:
+      - mb7-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d masterbuilder7"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging: *default-logging
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=256MB"
+
+  # ---------------------------------------------------------------------------
+  # Redis - Caching and Message Broker
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: mb7-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - mb7-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    logging: *default-logging
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+  # ---------------------------------------------------------------------------
+  # Prometheus - Metrics Collection
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: mb7-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    networks:
+      - mb7-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # Grafana - Dashboards and Visualization
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: mb7-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3000}
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - mb7-network
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # Nginx - Reverse Proxy and Load Balancer
+  # ---------------------------------------------------------------------------
+  nginx:
+    image: nginx:alpine
+    container_name: mb7-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx-cache:/var/cache/nginx
+    networks:
+      - mb7-network
+    depends_on:
+      - mcp-server
+      - grafana
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging: *default-logging
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  nginx-cache:
+    driver: local
+  mb7-data:
+    driver: local
+  mb7-logs:
+    driver: local
+  mb7-checkpoints:
+    driver: local
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  mb7-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

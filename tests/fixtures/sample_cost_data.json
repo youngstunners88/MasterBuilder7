@@ -1,0 +1,68 @@
+{
+  "usage_records": [
+    {
+      "agent_id": "agent-001",
+      "provider": "kimi",
+      "model": "kimi-v1",
+      "tokens_input": 15000,
+      "tokens_output": 5000,
+      "request_type": "code_generation",
+      "timestamp": "2024-01-15T10:00:00Z"
+    },
+    {
+      "agent_id": "agent-002",
+      "provider": "chatgpt",
+      "model": "gpt-4",
+      "tokens_input": 8000,
+      "tokens_output": 3000,
+      "request_type": "security_analysis",
+      "timestamp": "2024-01-15T10:30:00Z"
+    },
+    {
+      "agent_id": "agent-003",
+      "provider": "claude",
+      "model": "claude-3-sonnet",
+      "tokens_input": 12000,
+      "tokens_output": 4000,
+      "request_type": "documentation",
+      "timestamp": "2024-01-15T11:00:00Z"
+    },
+    {
+      "agent_id": "agent-001",
+      "provider": "kimi",
+      "model": "kimi-v1",
+      "tokens_input": 10000,
+      "tokens_output": 3500,
+      "request_type": "refactoring",
+      "timestamp": "2024-01-15T11:30:00Z"
+    },
+    {
+      "agent_id": "agent-004",
+      "provider": "chatgpt",
+      "model": "gpt-4o",
+      "tokens_input": 20000,
+      "tokens_output": 8000,
+      "request_type": "optimization",
+      "timestamp": "2024-01-15T12:00:00Z"
+    }
+  ],
+  "daily_budget": 500.0,
+  "alert_thresholds": [
+    {"percent": 50, "level": "INFO"},
+    {"percent": 75, "level": "WARNING"},
+    {"percent": 90, "level": "CRITICAL"},
+    {"percent": 100, "level": "KILL_SWITCH"}
+  ],
+  "cost_optimization_rules": [
+    {
+      "condition": "gpt-4 usage > $100",
+      "suggestion": "Consider using Kimi for non-critical tasks",
+      "potential_savings": "90%"
+    },
+    {
+      "condition": "claude-opus usage > $50",
+      "suggestion": "Use Claude Sonnet for most tasks",
+      "potential_savings": "80%"
+    }
+  ]
+}

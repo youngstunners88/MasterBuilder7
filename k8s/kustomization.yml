@@ -1,0 +1,79 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Namespace for all resources
+namespace: mb7
+
+# Common metadata for all resources
+commonLabels:
+  app.kubernetes.io/name: masterbuilder7
+  app.kubernetes.io/version: "1.1.0"
+  app.kubernetes.io/managed-by: kubectl
+
+# Common annotations
+commonAnnotations:
+  deployment.kubernetes.io/revision: "1"
+  contact: "devops@masterbuilder7.io"
+
+# Resource files in order of creation
+resources:
+- 01-namespace.yml
+- 02-configmap.yml
+- 03-secrets.yml
+- 04-postgres-deployment.yml
+- 05-redis-deployment.yml
+- 06-mcp-server-deployment.yml
+- 07-agent-worker-deployment.yml
+- 08-monitoring-deployment.yml
+- 09-ingress.yml
+- 10-service.yml
+- 11-hpa.yml
+- 12-rbac.yml
+
+# ConfigMap generator for additional configs
+configMapGenerator:
+- name: mb7-additional-config
+  literals:
+  - ENVIRONMENT=production
+  - LOG_FORMAT=json
+
+# Secret generator (use external secrets in production)
+secretGenerator:
+- name: mb7-generated-secrets
+  literals:
+  - placeholder=value
+  options:
+    disableNameSuffixHash: true
+
+# Image customization
+images:
+- name: masterbuilder7/mcp-server
+  newTag: v1.1.0
+- name: masterbuilder7/agent-worker
+  newTag: v1.1.0
+
+# Replica count patches
+replicas:
+- name: mb7-mcp-server
+  count: 3
+- name: mb7-agent-worker
+  count: 5
+- name: mb7-build-worker
+  count: 3
+- name: mb7-security-worker
+  count: 2
+
+# Patches for environment-specific configurations
+patchesStrategicMerge:
+# Add environment-specific patches here
+# - patches/production-resources.yml
+# - patches/production-ingress.yml
+
+# JSON patches for specific modifications
+patchesJson6902: []
+
+# Helm chart integration (if using Helm)
+helmCharts: []
+
+# Vars for templating
+vars: []

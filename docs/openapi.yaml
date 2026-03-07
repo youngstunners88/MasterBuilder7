@@ -1,0 +1,2167 @@
+openapi: 3.0.3
+info:
+  title: MasterBuilder7 API
+  description: |
+    # MasterBuilder7 - Autonomous Programming & Execution Engine
+    
+    MasterBuilder7 is a sophisticated multi-agent system for automated software development, 
+    deployment, and orchestration. This API provides comprehensive endpoints for:
+    
+    - **Agent Management**: Spawn, monitor, and control specialized sub-agents
+    - **Build Operations**: Execute autonomous builds with checkpoint management
+    - **Task Queue**: Distributed priority-based task scheduling and execution
+    - **MCP Tools**: Model Context Protocol integration for external AI systems
+    - **Monitoring**: Health checks, metrics, and system status
+    
+    ## Authentication
+    
+    All API endpoints require authentication via API key passed in the header:
+    ```
+    X-API-Key: your-api-key-here
+    ```
+    
+    ## Rate Limiting
+    
+    - Standard tier: 1000 requests/minute
+    - Enterprise tier: 10000 requests/minute
+    
+    ## Error Handling
+    
+    All errors follow the standard RFC 7807 Problem Details format.
+  version: 2.0.0
+  contact:
+    name: MasterBuilder7 Support
+    email: support@masterbuilder7.ai
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+  - url: https://api.masterbuilder7.ai/v2
+    description: Production server
+  - url: https://staging-api.masterbuilder7.ai/v2
+    description: Staging server
+
+tags:
+  - name: Agent Management
+    description: Spawn, monitor, and control specialized sub-agents
+  - name: Build Operations
+    description: Execute and manage autonomous build processes
+  - name: Task Queue
+    description: Distributed task scheduling and execution
+  - name: MCP Tools
+    description: Model Context Protocol integration endpoints
+  - name: Monitoring
+    description: Health checks, metrics, and system status
+
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []
+
+paths:
+  # ============================================================================
+  # Agent Management
+  # ============================================================================
+  /agents:
+    get:
+      tags:
+        - Agent Management
+      summary: List all agents
+      description: |
+        Retrieve a paginated list of all running and historical agents.
+        Supports filtering by status, type, and time range.
+      operationId: listAgents
+      parameters:
+        - name: status
+          in: query
+          description: Filter by agent status
+          schema:
+            type: string
+            enum:
+              - pending
+              - spawning
+              - ready
+              - running
+              - paused
+              - completed
+              - failed
+              - terminating
+              - terminated
+        - name: type
+          in: query
+          description: Filter by agent type
+          schema:
+            type: string
+            enum:
+              - security_audit
+              - paystack_security
+              - fastapi_security
+              - capacitor_security
+              - ai_router
+              - ai_optimizer
+              - code_generator
+              - db_optimizer
+              - query_optimizer
+              - db_migration
+              - performance_profiler
+              - cache_optimizer
+              - reward_calculator
+              - referral_processor
+              - payout_calculator
+              - capacitor_build_expert
+              - play_store_deployer
+              - app_store_deployer
+              - docker_expert
+              - k8s_expert
+              - test_generator
+              - e2e_tester
+              - security_scanner
+              - route_optimizer
+              - eta_calculator
+              - code_analyzer
+              - doc_generator
+              - business_logic_extractor
+        - name: limit
+          in: query
+          description: Maximum number of agents to return
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          description: Number of agents to skip for pagination
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+      responses:
+        '200':
+          description: Successful response with agent list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentListResponse'
+              example:
+                agents:
+                  - id: agent-a1b2c3d4
+                    type: security_scanner
+                    status: running
+                    created_at: "2026-03-07T10:30:00Z"
+                    started_at: "2026-03-07T10:30:05Z"
+                    progress: 65
+                    task: "Full security audit"
+                  - id: agent-e5f6g7h8
+                    type: code_generator
+                    status: completed
+                    created_at: "2026-03-07T09:00:00Z"
+                    started_at: "2026-03-07T09:00:02Z"
+                    completed_at: "2026-03-07T09:15:30Z"
+                    result:
+                      files_generated: 12
+                      lines_of_code: 2450
+                total: 45
+                limit: 20
+                offset: 0
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+
+  /agents/{id}:
+    get:
+      tags:
+        - Agent Management
+      summary: Get agent status
+      description: Retrieve detailed status and information for a specific agent
+      operationId: getAgentStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Unique agent identifier
+          schema:
+            type: string
+            pattern: '^agent-[a-z0-9]{8}$'
+      responses:
+        '200':
+          description: Agent details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentDetail'
+              example:
+                id: agent-a1b2c3d4
+                type: security_scanner
+                status: running
+                created_at: "2026-03-07T10:30:00Z"
+                started_at: "2026-03-07T10:30:05Z"
+                config:
+                  max_tokens: 8000
+                  timeout: 600
+                  cost_budget: 2.0
+                context:
+                  repository: "/path/to/repo"
+                  focus_areas:
+                    - webhooks
+                    - api_keys
+                progress:
+                  percent: 65
+                  current_step: "Scanning for hardcoded secrets"
+                  steps_total: 8
+                  steps_completed: 5
+                cost_incurred: 0.85
+                tokens_used: 4250
+                parent_task_id: task-x9y8z7w6
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /agents/{id}/spawn:
+    post:
+      tags:
+        - Agent Management
+      summary: Spawn new agent
+      description: |
+        Spawn a new specialized sub-agent for executing specific tasks.
+        The agent will be configured based on the provided type and context.
+      operationId: spawnAgent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Desired agent ID (or 'new' for auto-generated)
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentSpawnRequest'
+            example:
+              agent_type: security_scanner
+              skill_name: paystack_security
+              context:
+                repository: "/home/projects/my-app"
+                focus_areas:
+                  - webhooks
+                  - api_keys
+                  - payment_callbacks
+              config_overrides:
+                timeout: 900
+                cost_budget: 5.0
+              parent_task_id: task-parent-001
+      responses:
+        '201':
+          description: Agent spawned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentSpawnResponse'
+              example:
+                agent_id: agent-a1b2c3d4
+                type: security_scanner
+                status: spawning
+                message: "Agent spawned successfully and initializing"
+                estimated_ready_time: "2026-03-07T10:30:05Z"
+                config:
+                  max_tokens: 8000
+                  timeout: 900
+                  cost_budget: 5.0
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '402':
+          description: Budget exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: BudgetExceeded
+                message: "Global cost budget exceeded: $95.50 / $100.00"
+                code: 402
+        '409':
+          description: Maximum concurrent agents reached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: MaxAgentsExceeded
+                message: "Maximum concurrent agents (64) reached. Please wait for existing agents to complete."
+                code: 409
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /agents/{id}/kill:
+    post:
+      tags:
+        - Agent Management
+      summary: Stop agent
+      description: |
+        Terminate a running agent. This will gracefully stop the agent's 
+        current task and release all resources.
+      operationId: killAgent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Agent identifier to terminate
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force:
+                  type: boolean
+                  default: false
+                  description: Force immediate termination without cleanup
+                reason:
+                  type: string
+                  description: Reason for termination (for audit logs)
+            example:
+              force: false
+              reason: "User requested cancellation"
+      responses:
+        '200':
+          description: Agent terminated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [terminated]
+                  terminated_at:
+                    type: string
+                    format: date-time
+                  final_result:
+                    type: object
+                    nullable: true
+              example:
+                agent_id: agent-a1b2c3d4
+                status: terminated
+                terminated_at: "2026-03-07T10:35:00Z"
+                final_result:
+                  partial_scan_results:
+                    files_scanned: 45
+                    issues_found: 3
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          description: Agent already terminated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: AgentAlreadyTerminated
+                message: "Agent agent-a1b2c3d4 is already in terminated state"
+                code: 409
+
+  /agents/{id}/logs:
+    get:
+      tags:
+        - Agent Management
+      summary: Get agent logs
+      description: Retrieve execution logs and output from a specific agent
+      operationId: getAgentLogs
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: tail
+          in: query
+          description: Number of log lines to return (from the end)
+          schema:
+            type: integer
+            default: 100
+            maximum: 10000
+        - name: since
+          in: query
+          description: Return logs after this timestamp
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Agent logs retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id:
+                    type: string
+                  logs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        timestamp:
+                          type: string
+                          format: date-time
+                        level:
+                          type: string
+                          enum: [DEBUG, INFO, WARNING, ERROR]
+                        message:
+                          type: string
+              example:
+                agent_id: agent-a1b2c3d4
+                logs:
+                  - timestamp: "2026-03-07T10:30:05Z"
+                    level: INFO
+                    message: "Agent initialized with security_scanner skill"
+                  - timestamp: "2026-03-07T10:30:06Z"
+                    level: INFO
+                    message: "Starting security audit of /home/projects/my-app"
+
+  # ============================================================================
+  # Build Operations
+  # ============================================================================
+  /builds:
+    post:
+      tags:
+        - Build Operations
+      summary: Start new build
+      description: |
+        Initiate a new autonomous build process. The build will proceed through 
+        multiple stages including analysis, planning, execution, and testing.
+      operationId: startBuild
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BuildRequest'
+            examples:
+              full-build:
+                summary: Full autonomous build
+                value:
+                  project_path: "./my-project"
+                  stages:
+                    - analysis
+                    - planning
+                    - frontend
+                    - backend
+                    - testing
+                    - deployment
+                  options:
+                    yolo_mode: true
+                    max_agents: 64
+                    create_checkpoints: true
+                    auto_deploy: false
+              quick-analysis:
+                summary: Quick analysis only
+                value:
+                  project_path: "./my-project"
+                  stages:
+                    - analysis
+                  options:
+                    depth: quick
+      responses:
+        '202':
+          description: Build accepted and queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuildResponse'
+              example:
+                build_id: build-x1y2z3a4
+                status: queued
+                message: "Build queued successfully"
+                project_path: "./my-project"
+                stages:
+                  - analysis
+                  - planning
+                  - frontend
+                  - backend
+                  - testing
+                  - deployment
+                estimated_duration: "15m"
+                queued_at: "2026-03-07T10:00:00Z"
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /builds/{id}:
+    get:
+      tags:
+        - Build Operations
+      summary: Get build status
+      description: Retrieve detailed status and progress of a build
+      operationId: getBuildStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^build-[a-z0-9]{8}$'
+      responses:
+        '200':
+          description: Build status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuildStatus'
+              examples:
+                in-progress:
+                  summary: Build in progress
+                  value:
+                    build_id: build-x1y2z3a4
+                    status: running
+                    progress: 45
+                    current_stage: backend
+                    stages:
+                      - name: analysis
+                        status: completed
+                        started_at: "2026-03-07T10:00:05Z"
+                        completed_at: "2026-03-07T10:02:30Z"
+                      - name: planning
+                        status: completed
+                        started_at: "2026-03-07T10:02:35Z"
+                        completed_at: "2026-03-07T10:05:00Z"
+                      - name: frontend
+                        status: completed
+                        started_at: "2026-03-07T10:05:05Z"
+                        completed_at: "2026-03-07T10:08:45Z"
+                      - name: backend
+                        status: running
+                        started_at: "2026-03-07T10:08:50Z"
+                    active_agents: 12
+                    started_at: "2026-03-07T10:00:00Z"
+                    estimated_completion: "2026-03-07T10:15:00Z"
+                completed:
+                  summary: Completed build
+                  value:
+                    build_id: build-x1y2z3a4
+                    status: completed
+                    progress: 100
+                    current_stage: deployment
+                    stages_completed:
+                      - analysis
+                      - planning
+                      - frontend
+                      - backend
+                      - testing
+                      - deployment
+                    artifacts:
+                      - type: android_apk
+                        path: "/builds/build-x1y2z3a4/app-release.apk"
+                        size: 15420
+                      - type: ios_ipa
+                        path: "/builds/build-x1y2z3a4/app-release.ipa"
+                        size: 23100
+                    started_at: "2026-03-07T10:00:00Z"
+                    completed_at: "2026-03-07T10:14:30Z"
+                    duration_seconds: 870
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /builds/{id}/cancel:
+    post:
+      tags:
+        - Build Operations
+      summary: Cancel build
+      description: |
+        Cancel a running or queued build. This will gracefully stop all 
+        active agents and create a final checkpoint.
+      operationId: cancelBuild
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                create_checkpoint:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Build cancelled successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  build_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [cancelled]
+                  cancelled_at:
+                    type: string
+                    format: date-time
+                  checkpoint_id:
+                    type: string
+                    nullable: true
+                  stages_completed:
+                    type: array
+                    items:
+                      type: string
+              example:
+                build_id: build-x1y2z3a4
+                status: cancelled
+                cancelled_at: "2026-03-07T10:10:00Z"
+                checkpoint_id: cp-build-x1y2-001
+                stages_completed:
+                  - analysis
+                  - planning
+
+  /builds/{id}/logs:
+    get:
+      tags:
+        - Build Operations
+      summary: Get build logs
+      description: Retrieve detailed logs from a build execution
+      operationId: getBuildLogs
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: stage
+          in: query
+          description: Filter logs by specific stage
+          schema:
+            type: string
+            enum:
+              - analysis
+              - planning
+              - frontend
+              - backend
+              - testing
+              - deployment
+        - name: tail
+          in: query
+          schema:
+            type: integer
+            default: 500
+      responses:
+        '200':
+          description: Build logs retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  build_id:
+                    type: string
+                  logs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BuildLogEntry'
+            text/plain:
+              schema:
+                type: string
+              example: |
+                [2026-03-07 10:00:05] INFO: Starting build analysis
+                [2026-03-07 10:00:10] INFO: Detected stack: capacitor_react_fastapi
+                [2026-03-07 10:02:25] INFO: Analysis complete. 47 files to process.
+
+  /builds/{id}/artifacts:
+    get:
+      tags:
+        - Build Operations
+      summary: List build artifacts
+      description: List all artifacts generated by a build
+      operationId: listBuildArtifacts
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Artifacts list retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  build_id:
+                    type: string
+                  artifacts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        type:
+                          type: string
+                        name:
+                          type: string
+                        path:
+                          type: string
+                        size:
+                          type: integer
+                        created_at:
+                          type: string
+                          format: date-time
+                        download_url:
+                          type: string
+
+  # ============================================================================
+  # Task Queue
+  # ============================================================================
+  /tasks:
+    post:
+      tags:
+        - Task Queue
+      summary: Enqueue task
+      description: |
+        Add a new task to the distributed queue. Tasks are processed based on 
+        priority and available worker capabilities.
+      operationId: enqueueTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskEnqueueRequest'
+            examples:
+              high-priority:
+                summary: High priority security task
+                value:
+                  type: security_scan
+                  payload:
+                    repository: "/path/to/repo"
+                    scan_depth: full
+                  priority: high
+                  required_capabilities:
+                    - security_audit
+                    - secret_scanning
+                  timeout_seconds: 600
+                  max_retries: 2
+              background:
+                summary: Background maintenance task
+                value:
+                  type: cleanup
+                  payload:
+                    target: temp_files
+                    older_than_days: 7
+                  priority: background
+                  scheduled_at: "2026-03-08T02:00:00Z"
+      responses:
+        '201':
+          description: Task enqueued successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskEnqueueResponse'
+              example:
+                task_id: task-a1b2c3d4
+                status: pending
+                queue_position: 5
+                estimated_start: "2026-03-07T10:05:00Z"
+                priority: high
+                enqueued_at: "2026-03-07T10:00:00Z"
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /tasks/{id}:
+    get:
+      tags:
+        - Task Queue
+      summary: Get task status
+      description: Retrieve detailed status and progress of a queued or running task
+      operationId: getTaskStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^task-[a-z0-9]{8}$'
+      responses:
+        '200':
+          description: Task status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskDetail'
+              examples:
+                running:
+                  summary: Task in progress
+                  value:
+                    id: task-a1b2c3d4
+                    type: security_scan
+                    status: running
+                    priority: 7
+                    payload:
+                      repository: "/path/to/repo"
+                      scan_depth: full
+                    assigned_to: worker-001
+                    progress:
+                      percent: 45
+                      current_step: "Scanning JavaScript files"
+                      steps_total: 10
+                      steps_completed: 4
+                    created_at: "2026-03-07T10:00:00Z"
+                    started_at: "2026-03-07T10:02:30Z"
+                    timeout_seconds: 600
+                completed:
+                  summary: Completed task
+                  value:
+                    id: task-a1b2c3d4
+                    type: security_scan
+                    status: completed
+                    priority: 7
+                    payload:
+                      repository: "/path/to/repo"
+                    assigned_to: worker-001
+                    result:
+                      files_scanned: 127
+                      issues_found: 3
+                      severity_breakdown:
+                        critical: 0
+                        high: 1
+                        medium: 2
+                        low: 0
+                    created_at: "2026-03-07T10:00:00Z"
+                    started_at: "2026-03-07T10:02:30Z"
+                    completed_at: "2026-03-07T10:08:45Z"
+                    execution_time_seconds: 375
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /tasks/{id}/retry:
+    post:
+      tags:
+        - Task Queue
+      summary: Retry failed task
+      description: |
+        Retry a task that has failed or timed out. The task will be re-enqueued 
+        with the same priority and parameters.
+      operationId: retryTask
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                priority_override:
+                  type: string
+                  enum: [critical, high, normal, low, background]
+                  description: Optional priority override for the retry
+                reset_retry_count:
+                  type: boolean
+                  default: false
+                  description: Reset the retry counter to 0
+      responses:
+        '200':
+          description: Task retry initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  original_task_id:
+                    type: string
+                  new_task_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [retrying]
+                  retry_count:
+                    type: integer
+                  message:
+                    type: string
+              example:
+                original_task_id: task-a1b2c3d4
+                new_task_id: task-e5f6g7h8
+                status: retrying
+                retry_count: 1
+                message: "Task re-enqueued with high priority"
+        '400':
+          description: Task cannot be retried
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: TaskNotRetryable
+                message: "Task task-a1b2c3d4 is already completed and cannot be retried"
+                code: 400
+
+  /tasks/{id}/cancel:
+    post:
+      tags:
+        - Task Queue
+      summary: Cancel task
+      description: Cancel a pending or running task
+      operationId: cancelTask
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Task cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [cancelled]
+                  cancelled_at:
+                    type: string
+                    format: date-time
+
+  /tasks/queue/stats:
+    get:
+      tags:
+        - Task Queue
+      summary: Get queue statistics
+      description: Retrieve statistics about the task queue
+      operationId: getQueueStats
+      responses:
+        '200':
+          description: Queue statistics retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueStats'
+              example:
+                total_pending: 47
+                total_running: 12
+                total_completed: 1250
+                total_failed: 23
+                total_dead_letter: 5
+                priority_breakdown:
+                  "10": 2
+                  "7": 8
+                  "5": 25
+                  "3": 8
+                  "1": 4
+                worker_count: 16
+                active_workers: 12
+                avg_wait_time_seconds: 45.5
+                avg_execution_time_seconds: 180.3
+
+  # ============================================================================
+  # MCP Tools
+  # ============================================================================
+  /mcp/invoke:
+    post:
+      tags:
+        - MCP Tools
+      summary: Invoke MCP tool
+      description: |
+        Invoke a Model Context Protocol tool. This endpoint allows external AI systems 
+        (ChatGPT, Grok, Claude, etc.) to execute MasterBuilder7 capabilities.
+      operationId: invokeMCPTool
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MCPRequest'
+            examples:
+              analyze_project:
+                summary: Analyze project
+                value:
+                  tool: analyze_project
+                  params:
+                    project_path: "./my-project"
+                    project_name: "My App"
+                  request_id: req-001
+                  ai_source: chatgpt
+              execute_build:
+                summary: Execute YOLO build
+                value:
+                  tool: execute_build
+                  params:
+                    project_path: "./my-project"
+                    yolo_mode: true
+                    max_agents: 64
+                  request_id: req-002
+                  ai_source: kimi
+      responses:
+        '200':
+          description: Tool executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPResponse'
+              examples:
+                success:
+                  summary: Successful execution
+                  value:
+                    request_id: req-001
+                    status: success
+                    result:
+                      project_path: "./my-project"
+                      ai_analyzed_by: chatgpt
+                      stack_detected: capacitor_react_fastapi
+                      automation_potential: 0.70
+                      agents_needed:
+                        - frontend
+                        - backend
+                        - testing
+                        - devops
+                    processing_time_ms: 1250
+                error:
+                  summary: Error response
+                  value:
+                    request_id: req-002
+                    status: error
+                    error: "Unknown tool: invalid_tool"
+                    processing_time_ms: 15
+
+  /mcp/tools:
+    get:
+      tags:
+        - MCP Tools
+      summary: List available tools
+      description: Retrieve a list of all available MCP tools with their parameters
+      operationId: listMCPTools
+      responses:
+        '200':
+          description: Tools list retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MCPTool'
+              example:
+                - name: analyze_project
+                  description: Analyze a project and detect technology stack
+                  params:
+                    project_path:
+                      type: string
+                      required: true
+                    project_name:
+                      type: string
+                      required: false
+                - name: execute_build
+                  description: Execute full YOLO mode build
+                  params:
+                    project_path:
+                      type: string
+                      required: true
+                    yolo_mode:
+                      type: boolean
+                      required: false
+                      default: true
+                    max_agents:
+                      type: integer
+                      required: false
+                      default: 64
+                - name: spawn_agent
+                  description: Spawn a specialized sub-agent
+                  params:
+                    agent_type:
+                      type: string
+                      required: true
+                    task:
+                      type: string
+                      required: true
+                    context:
+                      type: object
+                      required: false
+
+  /mcp/connect:
+    post:
+      tags:
+        - MCP Tools
+      summary: Connect AI system
+      description: Register an external AI system for MCP communication
+      operationId: connectAI
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ai_name:
+                  type: string
+                  enum: [chatgpt, grok, kimi, claude, custom]
+                info:
+                  type: object
+                  properties:
+                    version:
+                      type: string
+                    capabilities:
+                      type: array
+                      items:
+                        type: string
+      responses:
+        '200':
+          description: AI connected successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  ai_name:
+                    type: string
+                  message:
+                    type: string
+                  tools_count:
+                    type: integer
+                  endpoint:
+                    type: string
+              example:
+                status: connected
+                ai_name: chatgpt
+                message: "Welcome chatgpt! You can now invoke MCP tools."
+                tools_count: 12
+                endpoint: "/mcp/invoke"
+
+  /mcp/status:
+    get:
+      tags:
+        - MCP Tools
+      summary: Get MCP server status
+      description: Retrieve current status of the MCP server
+      operationId: getMCPStatus
+      responses:
+        '200':
+          description: MCP status retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  connected_ais:
+                    type: array
+                    items:
+                      type: string
+                  available_tools:
+                    type: array
+                    items:
+                      type: string
+                  uptime_seconds:
+                    type: integer
+                  version:
+                    type: string
+              example:
+                status: running
+                connected_ais:
+                  - chatgpt
+                  - kimi
+                  - grok
+                available_tools:
+                  - analyze_project
+                  - execute_build
+                  - spawn_agent
+                  - create_checkpoint
+                  - run_security_audit
+                uptime_seconds: 3600
+                version: "1.1.0"
+
+  /mcp/sse:
+    get:
+      tags:
+        - MCP Tools
+      summary: SSE endpoint for real-time updates
+      description: |
+        Server-Sent Events endpoint for receiving real-time updates from 
+        the MCP server.
+      operationId: mcpSSE
+      responses:
+        '200':
+          description: SSE stream established
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: |
+                data: {"timestamp": "2026-03-07T10:00:00Z", "connected_ais": 3, "requests": 150}
+
+  # ============================================================================
+  # Monitoring
+  # ============================================================================
+  /metrics:
+    get:
+      tags:
+        - Monitoring
+      summary: Prometheus metrics
+      description: |
+        Retrieve Prometheus-compatible metrics for monitoring the system.
+        Includes agent counts, build statistics, task queue metrics, and more.
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: |
+                # HELP apex_agents_total Total number of agents
+                # TYPE apex_agents_total gauge
+                apex_agents_total{status="running"} 12
+                apex_agents_total{status="completed"} 450
+                
+                # HELP apex_builds_total Total number of builds
+                # TYPE apex_builds_total counter
+                apex_builds_total{status="success"} 128
+                apex_builds_total{status="failed"} 5
+                
+                # HELP apex_tasks_total Total tasks processed
+                # TYPE apex_tasks_total counter
+                apex_tasks_total{status="completed"} 1523
+                apex_tasks_total{status="failed"} 23
+                
+                # HELP apex_queue_pending Pending tasks in queue
+                # TYPE apex_queue_pending gauge
+                apex_queue_pending 47
+
+  /health:
+    get:
+      tags:
+        - Monitoring
+      summary: Health check
+      description: |
+        Basic health check endpoint. Returns 200 if the service is healthy.
+        Used by load balancers and monitoring systems.
+      operationId: healthCheck
+      security: []  # No auth required for health checks
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: healthy
+                version: "2.0.0"
+                timestamp: "2026-03-07T10:00:00Z"
+                components:
+                  agent_layer: true
+                  checkpoint_manager: true
+                  spawner: true
+                  pattern_db: true
+                  fastapi: true
+                  config:
+                    host: "0.0.0.0"
+                    port: 8000
+                    workers: 1
+                    demo_mode: false
+        '503':
+          description: Service is unhealthy or initializing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: initializing
+                version: "2.0.0"
+                timestamp: "2026-03-07T10:00:00Z"
+                components:
+                  agent_layer: false
+                  checkpoint_manager: false
+
+  /status:
+    get:
+      tags:
+        - Monitoring
+      summary: System status
+      description: |
+        Retrieve detailed system status including all components, 
+        configuration, and runtime statistics.
+      operationId: getSystemStatus
+      responses:
+        '200':
+          description: System status retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: object
+                    properties:
+                      initialized:
+                        type: boolean
+                      demo_mode:
+                        type: boolean
+                      agent_layer:
+                        type: boolean
+                      spawner:
+                        type: boolean
+                      checkpoint_manager:
+                        type: boolean
+                      pattern_db:
+                        type: boolean
+                      ab_test_manager:
+                        type: boolean
+                  config:
+                    type: object
+                    properties:
+                      host:
+                        type: string
+                      port:
+                        type: integer
+                      workers:
+                        type: integer
+                      demo_mode:
+                        type: boolean
+                      checkpoint_dir:
+                        type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+                  uptime_seconds:
+                    type: integer
+                  active_builds:
+                    type: integer
+                  active_agents:
+                    type: integer
+                  queued_tasks:
+                    type: integer
+              example:
+                state:
+                  initialized: true
+                  demo_mode: false
+                  agent_layer: true
+                  spawner: true
+                  checkpoint_manager: true
+                  pattern_db: true
+                  ab_test_manager: true
+                config:
+                  host: "0.0.0.0"
+                  port: 8000
+                  workers: 1
+                  demo_mode: false
+                  checkpoint_dir: "/home/teacherchris37/MasterBuilder7/apex/checkpoints"
+                timestamp: "2026-03-07T10:00:00Z"
+                uptime_seconds: 3600
+                active_builds: 3
+                active_agents: 12
+                queued_tasks: 47
+
+  /ready:
+    get:
+      tags:
+        - Monitoring
+      summary: Readiness check
+      description: |
+        Kubernetes-style readiness probe. Returns 200 when the service 
+        is ready to accept traffic.
+      operationId: readinessCheck
+      security: []
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: ready
+        '503':
+          description: Service is not ready
+
+  /live:
+    get:
+      tags:
+        - Monitoring
+      summary: Liveness check
+      description: |
+        Kubernetes-style liveness probe. Returns 200 if the service 
+        is alive (even if not ready).
+      operationId: livenessCheck
+      security: []
+      responses:
+        '200':
+          description: Service is alive
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: alive
+
+# ============================================================================
+# Components
+# ============================================================================
+components:
+  # ============================================================================
+  # Security Schemas
+  # ============================================================================
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for authentication
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token for authentication
+
+  # ============================================================================
+  # Schemas
+  # ============================================================================
+  schemas:
+    # -------------------------------------------------------------------------
+    # Agent Management Schemas
+    # -------------------------------------------------------------------------
+    AgentListResponse:
+      type: object
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentSummary'
+        total:
+          type: integer
+          description: Total number of agents matching the query
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    AgentSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: '^agent-[a-z0-9]{8}$'
+        type:
+          type: string
+        status:
+          type: string
+          enum:
+            - pending
+            - spawning
+            - ready
+            - running
+            - paused
+            - completed
+            - failed
+            - terminating
+            - terminated
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        progress:
+          type: number
+          minimum: 0
+          maximum: 100
+        task:
+          type: string
+        cost_incurred:
+          type: number
+
+    AgentDetail:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/AgentSummary'
+      properties:
+        config:
+          $ref: '#/components/schemas/AgentConfig'
+        context:
+          type: object
+          description: Task context and input data
+        progress:
+          $ref: '#/components/schemas/AgentProgress'
+        tokens_used:
+          type: integer
+        parent_task_id:
+          type: string
+          nullable: true
+        result:
+          type: object
+          nullable: true
+        error:
+          type: string
+          nullable: true
+
+    AgentConfig:
+      type: object
+      properties:
+        agent_type:
+          type: string
+        required_skills:
+          type: array
+          items:
+            type: string
+        base_prompt:
+          type: string
+        max_tokens:
+          type: integer
+        timeout:
+          type: integer
+          description: Maximum execution time in seconds
+        cost_budget:
+          type: number
+          description: Maximum cost budget in USD
+        max_parallel_tasks:
+          type: integer
+        retry_count:
+          type: integer
+
+    AgentProgress:
+      type: object
+      properties:
+        percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        current_step:
+          type: string
+        steps_total:
+          type: integer
+        steps_completed:
+          type: integer
+        metadata:
+          type: object
+
+    AgentSpawnRequest:
+      type: object
+      required:
+        - agent_type
+      properties:
+        agent_type:
+          type: string
+          description: Type of agent to spawn
+        skill_name:
+          type: string
+          description: Pre-configured skill from registry
+        context:
+          type: object
+          description: Task context and input data
+        config_overrides:
+          type: object
+          description: Override default configuration
+        parent_task_id:
+          type: string
+          description: ID of parent task if this is a child agent
+
+    AgentSpawnResponse:
+      type: object
+      properties:
+        agent_id:
+          type: string
+        type:
+          type: string
+        status:
+          type: string
+        message:
+          type: string
+        estimated_ready_time:
+          type: string
+          format: date-time
+        config:
+          $ref: '#/components/schemas/AgentConfig'
+
+    # -------------------------------------------------------------------------
+    # Build Operations Schemas
+    # -------------------------------------------------------------------------
+    BuildRequest:
+      type: object
+      required:
+        - project_path
+      properties:
+        project_path:
+          type: string
+          description: Path to the project to build
+        stages:
+          type: array
+          items:
+            type: string
+            enum:
+              - analysis
+              - planning
+              - frontend
+              - backend
+              - testing
+              - deployment
+          description: Specific stages to run (defaults to all)
+        options:
+          type: object
+          properties:
+            yolo_mode:
+              type: boolean
+              default: true
+              description: Enable full autonomous mode
+            max_agents:
+              type: integer
+              default: 64
+              description: Maximum parallel agents
+            create_checkpoints:
+              type: boolean
+              default: true
+            auto_deploy:
+              type: boolean
+              default: false
+            depth:
+              type: string
+              enum: [quick, standard, deep]
+              default: standard
+
+    BuildResponse:
+      type: object
+      properties:
+        build_id:
+          type: string
+          pattern: '^build-[a-z0-9]{8}$'
+        status:
+          type: string
+          enum: [queued, running, completed, failed, cancelled]
+        message:
+          type: string
+        project_path:
+          type: string
+        stages:
+          type: array
+          items:
+            type: string
+        estimated_duration:
+          type: string
+        queued_at:
+          type: string
+          format: date-time
+
+    BuildStatus:
+      type: object
+      properties:
+        build_id:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, completed, failed, cancelled]
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        current_stage:
+          type: string
+        stages:
+          type: array
+          items:
+            $ref: '#/components/schemas/BuildStage'
+        stages_completed:
+          type: array
+          items:
+            type: string
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/BuildArtifact'
+        active_agents:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        estimated_completion:
+          type: string
+          format: date-time
+        duration_seconds:
+          type: integer
+        error:
+          type: string
+          nullable: true
+
+    BuildStage:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed, skipped]
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        progress:
+          type: integer
+
+    BuildArtifact:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [android_apk, ios_ipa, web_bundle, docker_image, binary, archive]
+        path:
+          type: string
+        size:
+          type: integer
+          description: Size in bytes
+        url:
+          type: string
+          description: Download URL
+
+    BuildLogEntry:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum: [DEBUG, INFO, WARNING, ERROR]
+        stage:
+          type: string
+        message:
+          type: string
+        agent_id:
+          type: string
+          nullable: true
+
+    # -------------------------------------------------------------------------
+    # Task Queue Schemas
+    # -------------------------------------------------------------------------
+    TaskEnqueueRequest:
+      type: object
+      required:
+        - type
+        - payload
+      properties:
+        type:
+          type: string
+          description: Task type/category
+        payload:
+          type: object
+          description: Task data
+        priority:
+          type: string
+          enum: [critical, high, normal, low, background]
+          default: normal
+        required_capabilities:
+          type: array
+          items:
+            type: string
+          description: Required agent capabilities
+        scheduled_at:
+          type: string
+          format: date-time
+          description: When to execute (null = immediate)
+        max_retries:
+          type: integer
+          default: 3
+        timeout_seconds:
+          type: integer
+          default: 300
+        parent_task_id:
+          type: string
+        correlation_id:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        metadata:
+          type: object
+
+    TaskEnqueueResponse:
+      type: object
+      properties:
+        task_id:
+          type: string
+          pattern: '^task-[a-z0-9]{8}$'
+        status:
+          type: string
+          enum: [pending, scheduled]
+        queue_position:
+          type: integer
+        estimated_start:
+          type: string
+          format: date-time
+        priority:
+          type: string
+        enqueued_at:
+          type: string
+          format: date-time
+
+    TaskDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        status:
+          type: string
+          enum:
+            - pending
+            - scheduled
+            - assigned
+            - running
+            - paused
+            - completed
+            - failed
+            - retrying
+            - cancelled
+            - timed_out
+            - dead_letter
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 10
+        payload:
+          type: object
+        required_capabilities:
+          type: array
+          items:
+            type: string
+        assigned_to:
+          type: string
+          nullable: true
+        progress:
+          $ref: '#/components/schemas/TaskProgress'
+        result:
+          type: object
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        retry_count:
+          type: integer
+        max_retries:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        scheduled_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        timeout_seconds:
+          type: integer
+        execution_time_seconds:
+          type: number
+          nullable: true
+        parent_task_id:
+          type: string
+          nullable: true
+        correlation_id:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+
+    TaskProgress:
+      type: object
+      properties:
+        percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        current_step:
+          type: string
+        steps_total:
+          type: integer
+        steps_completed:
+          type: integer
+        metadata:
+          type: object
+
+    QueueStats:
+      type: object
+      properties:
+        total_pending:
+          type: integer
+        total_running:
+          type: integer
+        total_completed:
+          type: integer
+        total_failed:
+          type: integer
+        total_dead_letter:
+          type: integer
+        priority_breakdown:
+          type: object
+          additionalProperties:
+            type: integer
+        worker_count:
+          type: integer
+        active_workers:
+          type: integer
+        avg_wait_time_seconds:
+          type: number
+        avg_execution_time_seconds:
+          type: number
+
+    # -------------------------------------------------------------------------
+    # MCP Tools Schemas
+    # -------------------------------------------------------------------------
+    MCPRequest:
+      type: object
+      required:
+        - tool
+        - params
+      properties:
+        tool:
+          type: string
+          description: Name of the MCP tool to invoke
+        params:
+          type: object
+          description: Tool-specific parameters
+        request_id:
+          type: string
+          description: Client-provided request ID
+        ai_source:
+          type: string
+          description: Identifies the calling AI system
+
+    MCPResponse:
+      type: object
+      properties:
+        request_id:
+          type: string
+        status:
+          type: string
+          enum: [success, error, pending]
+        result:
+          type: object
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        processing_time_ms:
+          type: integer
+
+    MCPTool:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        params:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              type:
+                type: string
+              required:
+                type: boolean
+              default:
+                description: Default value if parameter is optional
+
+    # -------------------------------------------------------------------------
+    # Monitoring Schemas
+    # -------------------------------------------------------------------------
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy, initializing]
+        version:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        components:
+          type: object
+          properties:
+            agent_layer:
+              type: boolean
+            checkpoint_manager:
+              type: boolean
+            spawner:
+              type: boolean
+            pattern_db:
+              type: boolean
+            fastapi:
+              type: boolean
+            config:
+              type: object
+            demo_mode:
+              type: boolean
+
+    # -------------------------------------------------------------------------
+    # Error Schemas
+    # -------------------------------------------------------------------------
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error code
+        message:
+          type: string
+          description: Human-readable error message
+        code:
+          type: integer
+          description: HTTP status code
+        details:
+          type: object
+          description: Additional error details
+          nullable: true
+        request_id:
+          type: string
+          description: Request ID for support
+
+    ValidationError:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/Error'
+      properties:
+        validation_errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+              value:
+                description: The invalid value
+
+  # ============================================================================
+  # Responses
+  # ============================================================================
+  responses:
+    BadRequestError:
+      description: Bad request - malformed request syntax
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: BadRequest
+            message: "The request could not be understood by the server"
+            code: 400
+            request_id: req-abc123
+
+    UnauthorizedError:
+      description: Unauthorized - invalid or missing API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Unauthorized
+            message: "Invalid or missing API key"
+            code: 401
+            request_id: req-abc123
+
+    NotFoundError:
+      description: Not found - the requested resource does not exist
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: NotFound
+            message: "Resource not found"
+            code: 404
+            request_id: req-abc123
+
+    ValidationError:
+      description: Validation error - request data failed validation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+          example:
+            error: ValidationError
+            message: "Request validation failed"
+            code: 422
+            validation_errors:
+              - field: "project_path"
+                message: "Project path is required"
+                value: null
+              - field: "max_agents"
+                message: "Must be between 1 and 256"
+                value: 500
+            request_id: req-abc123
+
+    RateLimitError:
+      description: Rate limit exceeded
+      headers:
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+          description: Request limit per minute
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+          description: Remaining requests in current window
+        X-RateLimit-Reset:
+          schema:
+            type: integer
+          description: Unix timestamp when the rate limit resets
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: RateLimitExceeded
+            message: "API rate limit exceeded. Try again in 60 seconds."
+            code: 429
+            request_id: req-abc123
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: InternalError
+            message: "An unexpected error occurred"
+            code: 500
+            request_id: req-abc123
