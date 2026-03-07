@@ -1,0 +1,36 @@
+[Unit]
+Description=APEX Fleet - 64 Agent Autonomous Workforce
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+User=teacherchris37
+WorkingDirectory=/home/teacherchris37/MasterBuilder7/apex
+
+# Environment
+Environment="NODE_ENV=production"
+Environment="APEX_DAILY_BUDGET=500"
+Environment="APEX_HOURLY_BUDGET=50"
+Environment="APEX_LOG_LEVEL=info"
+Environment="APEX_DASHBOARD_PORT=7777"
+
+# Main process
+ExecStart=/home/teacherchris37/.bun/bin/bun run launcher.ts
+
+# Graceful shutdown
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Resource limits (adjust based on your server)
+LimitAS=4G
+LimitNOFILE=65536
+
+# Logging
+StandardOutput=append:/var/log/apex/fleet.log
+StandardError=append:/var/log/apex/fleet.error.log
+
+[Install]
+WantedBy=multi-user.target
