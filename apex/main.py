@@ -214,15 +214,16 @@ class APEXConfig:
     
     # Security
     API_KEY = os.getenv("APEX_API_KEY", None)
-    SECRET_KEY = os.getenv("APEX_SECRET_KEY", "dev-secret-change-in-production")
+    SECRET_KEY = os.getenv("APEX_SECRET_KEY", "")
     
     # Database
     DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://apex:apex@localhost/apex")
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     
     # Paths
-    CHECKPOINT_DIR = os.getenv("APEX_CHECKPOINT_DIR", "/home/teacherchris37/MasterBuilder7/apex/checkpoints")
-    PATTERN_DB_PATH = os.getenv("APEX_PATTERN_DB_PATH", "/home/teacherchris37/MasterBuilder7/apex/evolution/patterns")
+    _BASE_DIR = Path(__file__).resolve().parent
+    CHECKPOINT_DIR = os.getenv("APEX_CHECKPOINT_DIR", str(_BASE_DIR / "checkpoints"))
+    PATTERN_DB_PATH = os.getenv("APEX_PATTERN_DB_PATH", str(_BASE_DIR / "evolution" / "patterns"))
     
     # Feature Flags
     ENABLE_QUANTUM = os.getenv("APEX_ENABLE_QUANTUM", "false").lower() == "true"
@@ -236,7 +237,7 @@ class APEXConfig:
     @classmethod
     def validate(cls) -> Dict[str, Any]:
         """Validate configuration and return status."""
-        required_vars = []
+        required_vars = [] if cls.DEMO_MODE else ["APEX_SECRET_KEY"]
         missing = []
         
         for var in required_vars:

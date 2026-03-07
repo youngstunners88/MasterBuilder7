@@ -7,8 +7,15 @@
 
 import { serve } from "bun";
 
-const PORT = 4200;
-const KIMI_ID = "kimi-cli-35.235.249.249";
+const PORT = parseInt(process.env.PORT || "4200", 10);
+const KIMI_ID = process.env.KIMI_ID || "kimi-cli-local";
+const API_KEY = process.env.APEX_API_KEY;
+const ELITE_BRIDGE_URL = process.env.ELITE_BRIDGE_URL || "http://100.127.121.51:4200";
+const MCP_INVOKE_URL = process.env.MCP_INVOKE_URL || "";
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "http://localhost:3000,http://localhost:5173")
+  .split(",")
+  .map(origin => origin.trim())
+  .filter(Boolean);
 
 // Agent status simulation (would connect to actual agent processes)
 const agentStatus = {
@@ -25,51 +32,74 @@ const agentStatus = {
 // Active tasks
 const activeTasks = new Map();
 
+const getCorsOrigin = (requestOrigin: string | null): string => {
+  if (!requestOrigin) return ALLOWED_ORIGINS[0] || "http://localhost:3000";
+  if (ALLOWED_ORIGINS.includes("*")) return "*";
+  return ALLOWED_ORIGINS.includes(requestOrigin) ? requestOrigin : (ALLOWED_ORIGINS[0] || "http://localhost:3000");
+};
+
+const jsonResponse = (payload: Record<string, unknown>, request: Request, status = 200) => {
+  const headers = {
+    "Access-Control-Allow-Origin": getCorsOrigin(request.headers.get("origin")),
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Kimi-ID, X-API-Key",
+    "Content-Type": "application/json"
+  };
+  return new Response(JSON.stringify(payload), { status, headers });
+};
+
+const isAuthorized = (request: Request): boolean => {
+  if (!API_KEY) return true;
+  return request.headers.get("x-api-key") === API_KEY;
+};
+
 const server = serve({
   port: PORT,
   async fetch(request) {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // CORS headers
-    const headers = {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, X-Kimi-ID",
-      "Content-Type": "application/json"
-    };
-
     if (request.method === "OPTIONS") {
-      return new Response(null, { headers });
+      return jsonResponse({}, request, 204);
     }
 
     // Health check
     if (path === "/api/v1/health") {
-      return new Response(JSON.stringify({
+      return jsonResponse({
         status: "healthy",
         node: KIMI_ID,
         timestamp: new Date().toISOString(),
         agents: Object.keys(agentStatus).length,
-        version: "1.0.0"
-      }), { headers });
+        version: "1.1.0",
+        mcp_integration: MCP_INVOKE_URL ? "configured" : "not_configured"
+      }, request);
     }
 
     // Full status
     if (path === "/api/v1/status") {
-      return new Response(JSON.stringify({
+      return jsonResponse({
         node: KIMI_ID,
         agents: agentStatus,
         active_tasks: activeTasks.size,
         total_completed: Object.values(agentStatus).reduce((sum, a) => sum + a.tasks_completed, 0),
         uptime: process.uptime(),
-        timestamp: new Date().toISOString()
-      }), { headers });
+        timestamp: new Date().toISOString(),
+        demo_mode: process.env.APEX_DEMO_MODE === "true"
+      }, request);
     }
 
     // Deploy endpoint
     if (path === "/api/v1/deploy" && request.method === "POST") {
+      if (!isAuthorized(request)) {
+        return jsonResponse({ accepted: false, error: "Unauthorized" }, request, 401);
+      }
+
       try {
         const body = await request.json();
+        if (!body?.repoUrl || typeof body.repoUrl !== "string") {
+          return jsonResponse({ accepted: false, error: "repoUrl is required" }, request, 400);
+        }
+
         const taskId = `kimi-${Date.now()}`;
         
         activeTasks.set(taskId, {
@@ -94,18 +124,18 @@ const server = serve({
           }
         }, 5000);
 
-        return new Response(JSON.stringify({
+        return jsonResponse({
           accepted: true,
           task_id: taskId,
           message: "Deployment queued",
           eta: "5 minutes"
-        }), { headers });
+        }, request);
 
       } catch (error) {
-        return new Response(JSON.stringify({
+        return jsonResponse({
           accepted: false,
-          error: error.message
-        }), { status: 400, headers });
+          error: error instanceof Error ? error.message : "Invalid request"
+        }, request, 400);
       }
     }
 
@@ -114,25 +144,36 @@ const server = serve({
       const completed = Array.from(activeTasks.values())
         .filter(t => t.status === "completed");
       
-      return new Response(JSON.stringify({
+      return jsonResponse({
         node: KIMI_ID,
         pending: activeTasks.size - completed.length,
         completed: completed,
         timestamp: new Date().toISOString()
-      }), { headers });
+      }, request);
     }
 
     // Bridge to Elite Squad
     if (path === "/api/v1/bridge/elite") {
-      return new Response(JSON.stringify({
-        endpoint: "http://100.127.121.51:4200",
+      return jsonResponse({
+        endpoint: ELITE_BRIDGE_URL,
         status: "connected",
         last_ping: new Date().toISOString()
-      }), { headers });
+      }, request);
+    }
+
+    if (path === "/api/v1/mcp") {
+      return jsonResponse({
+        configured: Boolean(MCP_INVOKE_URL),
+        endpoint: MCP_INVOKE_URL || null
+      }, request);
     }
 
     // 72-agent orchestration
     if (path === "/api/v1/orchestrate" && request.method === "POST") {
+      if (!isAuthorized(request)) {
+        return jsonResponse({ accepted: false, error: "Unauthorized" }, request, 401);
+      }
+
       try {
         const body = await request.json();
         
@@ -162,24 +203,24 @@ const server = serve({
           estimated_time: "3 minutes (vs 15 min sequential)"
         };
 
-        return new Response(JSON.stringify({
+        return jsonResponse({
           accepted: true,
           task_id: `orch-${Date.now()}`,
           distribution: distribution,
           parallel_agents: 72,
           message: "72-agent parallel execution initiated"
-        }), { headers });
+        }, request);
 
       } catch (error) {
-        return new Response(JSON.stringify({
+        return jsonResponse({
           accepted: false,
-          error: error.message
-        }), { status: 400, headers });
+          error: error instanceof Error ? error.message : "Invalid request"
+        }, request, 400);
       }
     }
 
     // Default 404
-    return new Response(JSON.stringify({
+    return jsonResponse({
       error: "Not found",
       available_endpoints: [
         "GET  /api/v1/health",
@@ -187,9 +228,10 @@ const server = serve({
         "POST /api/v1/deploy",
         "GET  /api/v1/sync",
         "GET  /api/v1/bridge/elite",
+        "GET  /api/v1/mcp",
         "POST /api/v1/orchestrate"
       ]
-    }), { status: 404, headers });
+    }, request, 404);
   }
 });
 
