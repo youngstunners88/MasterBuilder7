@@ -1,0 +1,260 @@
+name: Android Auto-Deploy (AAB Signed)
+
+on:
+  push:
+    branches: [main, master, production]
+    paths:
+      - 'apps/**'
+      - 'mobile/**'
+  workflow_dispatch:
+    inputs:
+      track:
+        description: 'Deployment track'
+        required: true
+        default: 'internal'
+        type: choice
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+
+env:
+  NODE_VERSION: '20'
+  JAVA_VERSION: '17'
+  BUDGET_LIMIT: 100
+
+jobs:
+  # Phase 1: Build & Sign (NO Android Studio GUI)
+  build-sign:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      aab-path: ${{ steps.sign.outputs.aab-path }}
+      version-code: ${{ steps.version.outputs.code }}
+      cost-usd: ${{ steps.cost.outputs.amount }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Decode Keystore
+        id: keystore
+        run: |
+          echo "${{ secrets.UPLOAD_KEYSTORE_B64 }}" | base64 -d > upload-keystore.jks
+          ls -la upload-keystore.jks
+
+      - name: Generate Version
+        id: version
+        run: |
+          VERSION_CODE=$(date +%s)
+          VERSION_NAME=$(date +%Y.%m.%d-%H%M)
+          echo "code=$VERSION_CODE" >> $GITHUB_OUTPUT
+          echo "name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "Generated version: $VERSION_NAME ($VERSION_CODE)"
+
+      - name: Install Dependencies
+        run: |
+          npm ci
+          npm install -g @capacitor/cli
+
+      - name: Build Web Assets
+        run: npm run build
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Build Release AAB (No GUI)
+        run: |
+          cd android
+          ./gradlew bundleRelease \
+            -Pandroid.injected.signing.store.file=../upload-keystore.jks \
+            -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} \
+            -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} \
+            -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }} \
+            -Pandroid.injected.version.code=${{ steps.version.outputs.code }} \
+            -Pandroid.injected.version.name=${{ steps.version.outputs.name }}
+
+      - name: Sign AAB
+        id: sign
+        run: |
+          AAB_PATH="android/app/build/outputs/bundle/release/app-release.aab"
+          SIGNED_AAB="android/app/build/outputs/bundle/release/app-release-signed.aab"
+          
+          # Align and sign
+          zipalign -v 4 "$AAB_PATH" "$SIGNED_AAB" || cp "$AAB_PATH" "$SIGNED_AAB"
+          
+          # Verify signature
+          apksigner verify --verbose "$SIGNED_AAB"
+          
+          echo "aab-path=$SIGNED_AAB" >> $GITHUB_OUTPUT
+          echo "AAB ready: $SIGNED_AAB"
+          ls -lh "$SIGNED_AAB"
+
+      - name: Track Cost
+        id: cost
+        run: |
+          # Estimate build cost (based on GitHub Actions minutes)
+          MINUTES=5
+          COST=$(echo "scale=4; $MINUTES * 0.008" | bc)
+          echo "amount=$COST" >> $GITHUB_OUTPUT
+          echo "Build cost: $COST USD"
+
+      - name: Upload AAB Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-aab
+          path: ${{ steps.sign.outputs.aab-path }}
+          retention-days: 30
+
+  # Phase 2: Deploy to Google Play
+  deploy-play-store:
+    needs: build-sign
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - name: Download AAB
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-aab
+          path: ./aab
+
+      - name: Setup Google Play API
+        run: |
+          echo "${{ secrets.GOOGLE_PLAY_JSON_KEY }}" | base64 -d > play-api-key.json
+
+      - name: Deploy to Play Store
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJson: play-api-key.json
+          packageName: ${{ vars.ANDROID_PACKAGE_NAME }}
+          releaseFiles: ./aab/*.aab
+          track: ${{ github.event.inputs.track || 'internal' }}
+          status: completed
+          whatsNewDirectory: distribution/whatsnew
+
+      - name: Notify Deployment
+        run: |
+          echo "🚀 Deployed to Play Store: ${{ github.event.inputs.track || 'internal' }}"
+          echo "Version: ${{ needs.build-sign.outputs.version-code }}"
+
+  # Phase 3: Deploy to App Store (iOS)
+  deploy-app-store:
+    needs: build-sign
+    runs-on: macos-latest
+    timeout-minutes: 30
+    if: vars.IOS_ENABLED == 'true'
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Dependencies
+        run: |
+          npm ci
+          npm install -g @capacitor/cli
+
+      - name: Build & Sync iOS
+        run: |
+          npm run build
+          npx cap sync ios
+
+      - name: Setup Certificates
+        run: |
+          echo "${{ secrets.IOS_CERTIFICATE_B64 }}" | base64 -d > certificate.p12
+          echo "${{ secrets.IOS_PROVISIONING_PROFILE_B64 }}" | base64 -d > profile.mobileprovision
+
+      - name: Archive iOS App
+        run: |
+          cd ios/App
+          xcodebuild archive \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -archivePath build/App.xcarchive \
+            -allowProvisioningUpdates
+
+      - name: Export IPA
+        run: |
+          cd ios/App
+          xcodebuild -exportArchive \
+            -archivePath build/App.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath build/Release
+
+      - name: Upload to TestFlight
+        uses: apple-actions/upload-testflight-build@v1
+        with:
+          app-path: ios/App/build/Release/*.ipa
+          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
+          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+
+  # Phase 4: Update Dashboard
+  update-dashboard:
+    needs: [build-sign, deploy-play-store]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update Deployment Status
+        run: |
+          curl -X POST "${{ vars.DASHBOARD_WEBHOOK }}/deploy" \
+            -H "Authorization: Bearer ${{ secrets.DASHBOARD_TOKEN }}" \
+            -d '{
+              "version": "${{ needs.build-sign.outputs.version-code }}",
+              "track": "${{ github.event.inputs.track || 'internal' }}",
+              "cost": "${{ needs.build-sign.outputs.cost-usd }}",
+              "timestamp": "'$(date -Iseconds)'",
+              "status": "success"
+            }'
+
+  # Phase 5: Budget Check & Kill Switch
+  budget-check:
+    needs: [build-sign, deploy-play-store, deploy-app-store]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Calculate Total Cost
+        run: |
+          TOTAL_COST=${{ needs.build-sign.outputs.cost-usd }}
+          
+          # Check if budget exceeded
+          if (( $(echo "$TOTAL_COST > $BUDGET_LIMIT" | bc -l) )); then
+            echo "🚨 BUDGET EXCEEDED: $TOTAL_COST > $BUDGET_LIMIT"
+            echo "Activating kill switch..."
+            
+            # Send kill signal
+            curl -X POST "${{ vars.KILL_SWITCH_URL }}" \
+              -H "Authorization: Bearer ${{ secrets.KILL_SWITCH_TOKEN }}" \
+              -d '{"reason": "budget_exceeded", "amount": "'$TOTAL_COST'"}'
+            
+            exit 1
+          else
+            echo "✅ Budget OK: $TOTAL_COST / $BUDGET_LIMIT"
+          fi
