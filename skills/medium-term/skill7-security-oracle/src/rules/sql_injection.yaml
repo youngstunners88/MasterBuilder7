@@ -1,0 +1,56 @@
+rules:
+  - id: python-sql-injection-string-format
+    languages:
+      - python
+    message: |
+      Detected string formatting in SQL query. This could lead to SQL injection.
+      Use parameterized queries instead.
+    severity: ERROR
+    metadata:
+      cwe: "CWE-89: SQL Injection"
+      confidence: HIGH
+    pattern-either:
+      - pattern: |
+          $CURSOR.execute(f"...")
+      - pattern: |
+          $CURSOR.execute("...".format(...))
+      - pattern: |
+          $CURSOR.execute("..." + $X)
+      - pattern: |
+          $CURSOR.executemany(f"...", ...)
+
+  - id: python-sql-injection-execute-vars
+    languages:
+      - python
+    message: |
+      Detected potential SQL injection with variable in query.
+      Ensure this uses parameterized queries.
+    severity: WARNING
+    metadata:
+      cwe: "CWE-89: SQL Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern: $CURSOR.execute($QUERY, ...)
+      - metavariable-pattern:
+          metavariable: $QUERY
+          patterns:
+            - pattern-not: "...%s..."
+            - pattern-not: "...?..."
+
+  - id: javascript-sql-injection
+    languages:
+      - javascript
+      - typescript
+    message: |
+      Detected potential SQL injection in JavaScript/TypeScript.
+      Use parameterized queries with your database library.
+    severity: ERROR
+    metadata:
+      cwe: "CWE-89: SQL Injection"
+    pattern-either:
+      - pattern: |
+          $DB.query(`...${...}...`, ...)
+      - pattern: |
+          $DB.query("..." + $X, ...)
+      - pattern: |
+          $POOL.execute(`...${...}...`, ...)

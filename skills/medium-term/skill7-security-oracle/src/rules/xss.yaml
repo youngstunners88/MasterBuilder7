@@ -1,0 +1,54 @@
+rules:
+  - id: python-xss-render-template
+    languages:
+      - python
+    message: |
+      Potential XSS vulnerability. Ensure user input is properly escaped.
+    severity: WARNING
+    metadata:
+      cwe: "CWE-79: Cross-site Scripting"
+    patterns:
+      - pattern: render_template_string($TEMPLATE, ...)
+      - metavariable-pattern:
+          metavariable: $TEMPLATE
+          patterns:
+            - pattern-not: "..."
+
+  - id: javascript-inner-html
+    languages:
+      - javascript
+      - typescript
+    message: |
+      Using innerHTML with potentially untrusted data can lead to XSS.
+      Use textContent or sanitize HTML with DOMPurify.
+    severity: ERROR
+    metadata:
+      cwe: "CWE-79: Cross-site Scripting"
+    patterns:
+      - pattern-either:
+          - pattern: $EL.innerHTML = $X
+          - pattern: $EL.innerHTML += $X
+          - pattern: $EL.outerHTML = $X
+
+  - id: javascript-dangerous-write
+    languages:
+      - javascript
+      - typescript
+    message: |
+      document.write is dangerous and can lead to XSS. Avoid using it.
+    severity: WARNING
+    metadata:
+      cwe: "CWE-79: Cross-site Scripting"
+    pattern-either:
+      - pattern: document.write($X)
+      - pattern: document.writeln($X)
+
+  - id: python-mark-safe
+    languages:
+      - python
+    message: |
+      mark_safe disables HTML escaping. Ensure the content is actually safe.
+    severity: WARNING
+    metadata:
+      cwe: "CWE-79: Cross-site Scripting"
+    pattern: mark_safe($X)
