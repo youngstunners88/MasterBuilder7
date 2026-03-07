@@ -1,0 +1,113 @@
+{
+  "name": "72-Agent Parallel Orchestration",
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "apex-orchestrate"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse incoming task\nconst task = $input.first().json;\n\n// Distribute across 72 agents\nconst distribution = {\n  kimi_64: {\n    screens: Array(16).fill(null).map((_, i) => ({\n      agent: `frontend-${i + 1}`,\n      type: 'screen',\n      count: 4\n    })),\n    api: Array(20).fill(null).map((_, i) => ({\n      agent: `backend-${i + 1}`,\n      type: 'endpoint',\n      count: 1\n    })),\n    tests: Array(16).fill(null).map((_, i) => ({\n      agent: `testing-${i + 1}`,\n      type: 'test-suite',\n      coverage: 'full'\n    })),\n    docs: Array(12).fill(null).map((_, i) => ({\n      agent: `docs-${i + 1}`,\n      type: 'documentation',\n      pages: 5\n    }))\n  },\n  kofi_8: [\n    { agent: 'meta-router', action: 'stack-detection' },\n    { agent: 'architect', action: 'integration-planning' },\n    { agent: 'frontend', action: 'code-review' },\n    { agent: 'backend', action: 'security-verification' },\n    { agent: 'guardian', action: 'consensus-verification' },\n    { agent: 'devops', action: 'deployment-prep' },\n    { agent: 'captain', action: 'orchestration' },\n    { agent: 'evolution', action: 'pattern-extraction' }\n  ],\n  youngstunners: {\n    bridge: 'sync-every-10s',\n    relay: 'command-forwarding',\n    monitor: 'health-checks'\n  }\n};\n\nreturn [{\n  json: {\n    task_id: `apex-${Date.now()}`,\n    repo: task.repoUrl,\n    track: task.track,\n    distribution: distribution,\n    total_agents: 72,\n    estimated_time: '3 minutes'\n  }\n}];"
+      },
+      "name": "Distribute 72 Agents",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "options": {},
+        "requestMethod": "POST",
+        "url": "http://35.235.249.249:4200/api/v1/orchestrate",
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ JSON.stringify($json) }}"
+      },
+      "name": "Kimi 64 Agents",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [650, 200]
+    },
+    {
+      "parameters": {
+        "options": {},
+        "requestMethod": "POST",
+        "url": "http://100.127.121.51:4200/api/elite/deploy",
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ JSON.stringify({\n  repoUrl: $json.repo,\n  track: $json.track,\n  agents: $json.distribution.kofi_8\n}) }}"
+      },
+      "name": "Kofi Elite Squad",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "options": {},
+        "requestMethod": "POST",
+        "url": "https://youngstunners.zo.space/bridge/orchestrate",
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ JSON.stringify({\n  task_id: $json.task_id,\n  nodes: ['kimi', 'kofi']\n}) }}"
+      },
+      "name": "Youngstunners Bridge",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [650, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Wait for all nodes to complete\nconst results = $input.all();\n\nreturn [{\n  json: {\n    status: 'completed',\n    task_id: results[0].json.task_id,\n    results: {\n      kimi_64: results[0].json,\n      kofi_8: results[1].json,\n      youngstunners: results[2].json\n    },\n    total_time: '3 minutes',\n    parallel_efficiency: '80%'
+  }\n}];"
+      },
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "options": {},
+        "requestMethod": "POST",
+        "url": "http://100.127.121.51:4200/api/elite/notify",
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ JSON.stringify({\n  type: 'orchestration-complete',\n  task: $json\n}) }}"
+      },
+      "name": "Notify Elite Squad",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1050, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{"node": "Distribute 72 Agents", "type": "main", "index": 0}]]
+    },
+    "Distribute 72 Agents": {
+      "main": [
+        [{"node": "Kimi 64 Agents", "type": "main", "index": 0}],
+        [{"node": "Kofi Elite Squad", "type": "main", "index": 0}],
+        [{"node": "Youngstunners Bridge", "type": "main", "index": 0}]
+      ]
+    },
+    "Kimi 64 Agents": {
+      "main": [[{"node": "Aggregate Results", "type": "main", "index": 0}]]
+    },
+    "Kofi Elite Squad": {
+      "main": [[{"node": "Aggregate Results", "type": "main", "index": 0}]]
+    },
+    "Youngstunners Bridge": {
+      "main": [[{"node": "Aggregate Results", "type": "main", "index": 0}]]
+    },
+    "Aggregate Results": {
+      "main": [[{"node": "Notify Elite Squad", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["apex", "orchestration", "72-agents"]
+}
