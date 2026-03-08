@@ -1,0 +1,72 @@
+name: ICP Canister Deploy
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      network:
+        description: 'ICP Network'
+        required: true
+        default: 'ic'
+        type: choice
+        options:
+          - ic
+          - local
+          - playground
+
+env:
+  DFX_VERSION: 0.25.0
+  IC_NETWORK: ${{ github.event.inputs.network || 'ic' }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install DFX
+        run: |
+          wget -O install-dfx.sh https://internetcomputer.org/install.sh
+          chmod +x install-dfx.sh
+          DFX_VERSION=$DFX_VERSION ./install-dfx.sh -y
+          echo "$HOME/.local/share/dfx/bin" >> $GITHUB_PATH
+
+      - name: Setup DFX Identity
+        env:
+          DFX_IDENTITY_JSON: ${{ secrets.DFX_IDENTITY_JSON }}
+        run: |
+          mkdir -p ~/.config/dfx/identity/default
+          echo "$DFX_IDENTITY_JSON" > ~/.config/dfx/identity/default/identity.pem
+          dfx identity use default
+
+      - name: Get Cycles Wallet
+        run: |
+          CYCLES_WALLET=$(dfx identity get-wallet --network $IC_NETWORK)
+          echo "CYCLES_WALLET=$CYCLES_WALLET" >> $GITHUB_ENV
+          echo "Wallet: $CYCLES_WALLET"
+
+      - name: Build Canisters
+        run: |
+          dfx build --network $IC_NETWORK
+
+      - name: Deploy Canisters
+        run: |
+          dfx deploy --network $IC_NETWORK --yes
+
+      - name: Verify Deployment
+        run: |
+          dfx canister id backend --network $IC_NETWORK
+          dfx canister id frontend --network $IC_NETWORK
+
+      - name: Notify Success
+        if: success()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {"text": "✅ ICP Deployment Successful: ${{ github.repository }} to ${{ env.IC_NETWORK }}"}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
