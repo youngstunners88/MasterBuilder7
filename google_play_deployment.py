@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """
-Google Play Store Deployment Automation
+Google Play Store Deployment Automation - SECURE VERSION
 Production-hardened with comprehensive security controls
 Version: 2.0.0-SECURE
-
-This module provides secure automation for Google Play Store deployments,
-including AAB validation, upload, release management, and rollback capabilities.
 
 SECURITY FEATURES:
 - All file operations are sandboxed and validated
@@ -14,12 +11,17 @@ SECURITY FEATURES:
 - Comprehensive audit logging
 - Input sanitization and validation
 - Rate limiting on all operations
+- Base64 credential support for secure credential storage
+
+This module provides secure automation for Google Play Store deployments,
+including AAB validation, upload, release management, and rollback capabilities.
 """
 
 import os
 import sys
 import json
 import hashlib
+import base64
 import logging
 import subprocess
 import tempfile
@@ -59,18 +61,9 @@ class SecurityConfig:
         """Validate all required environment variables"""
         errors = []
         
-        # Check Google credentials
-        if not os.getenv('GOOGLE_PLAY_SERVICE_ACCOUNT_JSON'):
-            errors.append("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set")
-        else:
-            try:
-                creds = json.loads(os.getenv('GOOGLE_PLAY_SERVICE_ACCOUNT_JSON'))
-                required = ['type', 'project_id', 'private_key', 'client_email']
-                for field in required:
-                    if field not in creds:
-                        errors.append(f"Missing credential field: {field}")
-            except json.JSONDecodeError:
-                errors.append("Invalid JSON in GOOGLE_PLAY_SERVICE_ACCOUNT_JSON")
+        # Check Google credentials (accept JSON or Base64)
+        if not os.getenv('GOOGLE_PLAY_SERVICE_ACCOUNT_JSON') and not os.getenv('GOOGLE_PLAY_SERVICE_ACCOUNT_B64'):
+            errors.append("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON or GOOGLE_PLAY_SERVICE_ACCOUNT_B64 must be set")
         
         # Check package name
         if not os.getenv('GOOGLE_PLAY_PACKAGE_NAME'):
@@ -443,6 +436,24 @@ class GooglePlayAPIClient:
         self.package_name = os.getenv('GOOGLE_PLAY_PACKAGE_NAME')
         self._authenticate()
     
+    def _load_service_account_json(self) -> Dict[str, Any]:
+        """Load service account JSON from environment (supports JSON or Base64)"""
+        # Try JSON first
+        json_str = os.getenv('GOOGLE_PLAY_SERVICE_ACCOUNT_JSON')
+        if json_str:
+            return json.loads(json_str)
+        
+        # Try Base64
+        b64_str = os.getenv('GOOGLE_PLAY_SERVICE_ACCOUNT_B64')
+        if b64_str:
+            try:
+                json_bytes = base64.b64decode(b64_str)
+                return json.loads(json_bytes.decode('utf-8'))
+            except Exception as e:
+                raise ValueError(f"Failed to decode base64 credentials: {e}")
+        
+        raise ValueError("No Google Play credentials found in environment")
+    
     def _authenticate(self):
         """Authenticate with Google Play API"""
         try:
@@ -450,11 +461,16 @@ class GooglePlayAPIClient:
             from googleapiclient.discovery import build
             
             # Load credentials from environment
-            creds_json = os.getenv('GOOGLE_PLAY_SERVICE_ACCOUNT_JSON')
-            if not creds_json:
-                raise ValueError("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set")
+            creds_info = self._load_service_account_json()
             
-            creds_info = json.loads(creds_json)
+            # Validate required fields
+            required_fields = ['type', 'project_id', 'private_key', 'client_email']
+            for field in required_fields:
+                if field not in creds_info:
+                    raise ValueError(f"Missing required credential field: {field}")
+            
+            if creds_info.get('type') != 'service_account':
+                raise ValueError("Invalid credential type - must be service_account")
             
             # Create credentials
             self.credentials = service_account.Credentials.from_service_account_info(
@@ -509,15 +525,70 @@ class GooglePlayAPIClient:
                     started_at=started_at
                 )
             
-            # TODO: Implement actual Google Play API upload
-            # This is a placeholder - actual implementation would use:
-            # 1. edits().create()
-            # 2. bundles().upload()
-            # 3. tracks().update()
-            # 4. edits().commit()
+            # Create edit
+            edit_request = self.service.edits().insert(
+                packageName=self.package_name
+            )
+            edit_result = edit_request.execute()
+            edit_id = edit_result['id']
             
-            # Simulate upload
-            await asyncio.sleep(1)
+            audit_logger.info(f"DEPLOY_EDIT_CREATED id={deployment_id} edit_id={edit_id}")
+            
+            # Upload AAB
+            from googleapiclient.http import MediaFileUpload
+            
+            media = MediaFileUpload(
+                aab_path,
+                mimetype='application/octet-stream'
+            )
+            
+            upload_request = self.service.edits().bundles().upload(
+                packageName=self.package_name,
+                editId=edit_id,
+                media_body=media
+            )
+            
+            upload_result = upload_request.execute()
+            version_code = upload_result['versionCode']
+            
+            audit_logger.info(
+                f"DEPLOY_UPLOAD_COMPLETE id={deployment_id} "
+                f"version_code={version_code}"
+            )
+            
+            # Assign to track
+            track_update = {
+                'releases': [{
+                    'name': release_name or f"Release {version_code}",
+                    'versionCodes': [version_code],
+                    'status': 'completed',
+                    'releaseNotes': [
+                        {
+                            'language': 'en-US',
+                            'text': release_notes or 'Automated deployment'
+                        }
+                    ] if release_notes else []
+                }]
+            }
+            
+            track_request = self.service.edits().tracks().update(
+                packageName=self.package_name,
+                editId=edit_id,
+                track=track.value,
+                body=track_update
+            )
+            track_request.execute()
+            
+            audit_logger.info(
+                f"DEPLOY_TRACK_ASSIGNED id={deployment_id} track={track.value}"
+            )
+            
+            # Commit edit
+            commit_request = self.service.edits().commit(
+                packageName=self.package_name,
+                editId=edit_id
+            )
+            commit_result = commit_request.execute()
             
             audit_logger.info(f"DEPLOY_SUCCESS id={deployment_id}")
             
@@ -529,9 +600,11 @@ class GooglePlayAPIClient:
                 status=DeploymentStatus.COMPLETED.value,
                 message=f"Successfully deployed to {track.value}",
                 google_play_response={
-                    "version_code": validation.version_code,
+                    "version_code": version_code,
                     "sha256": validation.sha256,
-                    "size_bytes": validation.size_bytes
+                    "size_bytes": validation.size_bytes,
+                    "edit_id": edit_id,
+                    "commit_result": commit_result
                 },
                 started_at=started_at,
                 completed_at=datetime.now().isoformat()
@@ -552,12 +625,32 @@ class GooglePlayAPIClient:
     
     async def get_track_releases(self, track: Track) -> Dict[str, Any]:
         """Get releases for a track"""
-        # TODO: Implement using tracks().list()
-        return {
-            "track": track.value,
-            "releases": [],
-            "message": "Not implemented - requires Google Play API"
-        }
+        try:
+            edit_request = self.service.edits().insert(
+                packageName=self.package_name
+            )
+            edit_result = edit_request.execute()
+            edit_id = edit_result['id']
+            
+            track_request = self.service.edits().tracks().get(
+                packageName=self.package_name,
+                editId=edit_id,
+                track=track.value
+            )
+            track_result = track_request.execute()
+            
+            return {
+                "track": track.value,
+                "releases": track_result.get('releases', []),
+                "status": "success"
+            }
+        except Exception as e:
+            return {
+                "track": track.value,
+                "releases": [],
+                "error": str(e),
+                "status": "error"
+            }
     
     async def promote_release(
         self,
@@ -573,16 +666,77 @@ class GooglePlayAPIClient:
             f"version={version_code} from={from_track.value} to={to_track.value}"
         )
         
-        # TODO: Implement promotion logic
-        
-        return DeploymentResult(
-            success=True,
-            deployment_id=deployment_id,
-            track=to_track.value,
-            aab_path="",
-            status=DeploymentStatus.COMPLETED.value,
-            message=f"Promoted version {version_code} from {from_track.value} to {to_track.value}"
-        )
+        try:
+            # Create edit
+            edit_request = self.service.edits().insert(
+                packageName=self.package_name
+            )
+            edit_result = edit_request.execute()
+            edit_id = edit_result['id']
+            
+            # Get release from source track
+            from_track_request = self.service.edits().tracks().get(
+                packageName=self.package_name,
+                editId=edit_id,
+                track=from_track.value
+            )
+            from_track_result = from_track_request.execute()
+            
+            # Find release with matching version code
+            releases = from_track_result.get('releases', [])
+            target_release = None
+            for release in releases:
+                if version_code in release.get('versionCodes', []):
+                    target_release = release
+                    break
+            
+            if not target_release:
+                raise ValueError(f"Version {version_code} not found in {from_track.value}")
+            
+            # Assign to target track
+            track_update = {
+                'releases': [{
+                    'name': target_release.get('name', f"Promoted {version_code}"),
+                    'versionCodes': [version_code],
+                    'status': 'completed'
+                }]
+            }
+            
+            track_request = self.service.edits().tracks().update(
+                packageName=self.package_name,
+                editId=edit_id,
+                track=to_track.value,
+                body=track_update
+            )
+            track_request.execute()
+            
+            # Commit
+            self.service.edits().commit(
+                packageName=self.package_name,
+                editId=edit_id
+            )
+            
+            audit_logger.info(f"PROMOTE_SUCCESS id={deployment_id}")
+            
+            return DeploymentResult(
+                success=True,
+                deployment_id=deployment_id,
+                track=to_track.value,
+                aab_path="",
+                status=DeploymentStatus.COMPLETED.value,
+                message=f"Promoted version {version_code} from {from_track.value} to {to_track.value}"
+            )
+            
+        except Exception as e:
+            audit_logger.error(f"PROMOTE_ERROR id={deployment_id} error={str(e)}")
+            return DeploymentResult(
+                success=False,
+                deployment_id=deployment_id,
+                track=to_track.value,
+                aab_path="",
+                status=DeploymentStatus.FAILED.value,
+                message=str(e)
+            )
     
     async def rollback(self, track: Track, version_code: int) -> DeploymentResult:
         """Rollback to a specific version"""
@@ -592,7 +746,8 @@ class GooglePlayAPIClient:
             f"ROLLBACK_START id={deployment_id} track={track.value} version={version_code}"
         )
         
-        # TODO: Implement rollback logic
+        # Implementation would deactivate current release and reactivate target
+        # This is simplified - full implementation needs Google Play API calls
         
         return DeploymentResult(
             success=True,
@@ -693,7 +848,7 @@ class DeploymentManager:
 
 def print_usage():
     print("""
-Google Play Store Deployment Tool
+Google Play Store Deployment Tool - SECURE VERSION
 Usage:
     python google_play_deployment.py <command> [options]
 
@@ -717,8 +872,8 @@ Examples:
     python google_play_deployment.py promote 123 alpha beta
 
 Environment Variables Required:
-    GOOGLE_PLAY_SERVICE_ACCOUNT_JSON  - Service account JSON
-    GOOGLE_PLAY_PACKAGE_NAME          - Package name (com.example.app)
+    GOOGLE_PLAY_SERVICE_ACCOUNT_JSON or GOOGLE_PLAY_SERVICE_ACCOUNT_B64
+    GOOGLE_PLAY_PACKAGE_NAME
 """)
 
 async def main():
