@@ -1,0 +1,7 @@
+#!/bin/bash
+# ship - ONE COMMAND to deploy iHhashi
+TARGET="${1:-all}"
+REPO_PATH="/home/workspace/iHhashi"
+echo "🚀 iHhashi REAL DEPLOY - Target: $TARGET"
+if [ ! -d "$REPO_PATH" ]; then echo "❌ Repo not found: $REPO_PATH"; exit 1; fi
+python3 /home/workspace/MasterBuilder7/REAL_ORCHESTRATOR.py "$REPO_PATH" "$TARGET" "$RENDER_API_KEY" "$DFX_IDENTITY"
