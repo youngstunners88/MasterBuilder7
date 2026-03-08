@@ -1,0 +1,96 @@
+name: Play Store Deploy
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      track:
+        description: "Release track"
+        required: true
+        default: "internal"
+        type: choice
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            ~/.gradle
+          key: ${{ runner.os }}-node-gradle-${{ hashFiles('**/package-lock.json', '**/build.gradle') }}
+
+      - name: Install dependencies
+        run: |
+          npm install -g @capacitor/cli
+          cd frontend && npm ci
+
+      - name: Build web assets
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Sync Capacitor
+        run: |
+          cd frontend
+          npx cap sync android
+
+      - name: Build signed AAB
+        run: |
+          cd frontend/android
+          ./gradlew bundleRelease
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Deploy to Play Store
+        run: |
+          python3 deploy/store_deploy.py \
+            --platform android \
+            --aab frontend/android/app/build/outputs/bundle/release/app-release.aab \
+            --package ${{ secrets.PACKAGE_NAME }} \
+            --version-code ${{ github.run_number }} \
+            --track ${{ github.event.inputs.track || \'internal\' }}
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+
+      - name: Notify success
+        if: success()
+        run: |
+          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"✅ Deployed to Play Store (${{ github.event.inputs.track || \'internal\' }})\"}"
+
+      - name: Notify failure
+        if: failure()
+        run: |
+          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"❌ Play Store deployment failed: ${{ github.run_id }}\"}"
