@@ -1,0 +1,20 @@
+{
+  "artifact_id": "art-deploy-aebe07986f6a",
+  "stage": "deploy",
+  "build_id": "build-20260307-235014",
+  "version": 1,
+  "timestamp": "2026-03-07T23:50:15.057127Z",
+  "producer_agent": "deploy",
+  "payload": {
+    "frontend_url": "https://demo.example.app",
+    "backend_url": "https://demo-api.example.app",
+    "deployment_time": "0.0s",
+    "status": "success",
+    "demo_mode": true,
+    "simulation": true,
+    "warning": "This is a simulated deployment"
+  },
+  "simulation": true,
+  "signature": "sha256:7a90bfc24d6ea49aaac6ce1464ec34bd",
+  "contract_version": "1.0"
+}

@@ -1,0 +1,38 @@
+{
+  "artifact_id": "art-analyze-6045fd9c7a5b",
+  "stage": "analyze",
+  "build_id": "build-20260307-235014",
+  "version": 1,
+  "timestamp": "2026-03-07T23:50:15.001374Z",
+  "producer_agent": "analyze",
+  "payload": {
+    "stack": "fastapi-backend",
+    "files_found": [
+      "master-orchestrator.ts",
+      "deploy",
+      "EASY_NGROK_SETUP.md",
+      "api",
+      "apex",
+      "elite-bridge.ts",
+      "k8s",
+      "logs",
+      "docker",
+      "fix_loca.lt_password.sh",
+      "orchestrator.db",
+      "CURRENT_TUNNEL_URL.txt",
+      "setup-zo-bridge.sh",
+      "MCP-BRIDGE.ts",
+      "cost-tracking",
+      "run_yolo_multi_ai.sh",
+      "mcp_server.py",
+      "mcp_client.py",
+      "mcp_http_server_secure.py",
+      "TRI-ZO-BRIDGE.ts"
+    ],
+    "automation_potential": 0.7,
+    "demo_mode": true
+  },
+  "simulation": true,
+  "signature": "sha256:9025fa8485abbedd26cccea7d1c05a9c",
+  "contract_version": "1.0"
+}

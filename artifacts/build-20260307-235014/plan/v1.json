@@ -1,0 +1,24 @@
+{
+  "artifact_id": "art-plan-20a3a37cf7c5",
+  "stage": "plan",
+  "build_id": "build-20260307-235014",
+  "version": 1,
+  "timestamp": "2026-03-07T23:50:15.020769Z",
+  "producer_agent": "plan",
+  "payload": {
+    "architecture": "fastapi-backend",
+    "stages": [
+      "analyze",
+      "plan",
+      "build",
+      "test",
+      "deploy",
+      "verify"
+    ],
+    "estimated_duration_seconds": 300,
+    "demo_mode": true
+  },
+  "simulation": true,
+  "signature": "sha256:9358daea71ce9b0349a587552436289d",
+  "contract_version": "1.0"
+}

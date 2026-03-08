@@ -1,0 +1,21 @@
+{
+  "artifact_id": "art-verify-79ce18e77487",
+  "stage": "verify",
+  "build_id": "build-20260307-235014",
+  "version": 1,
+  "timestamp": "2026-03-07T23:50:15.090983Z",
+  "producer_agent": "verify",
+  "payload": {
+    "health_checks": {
+      "passed": 2,
+      "failed": 0
+    },
+    "response_times": {},
+    "ssl_valid": true,
+    "verification_status": "PASSED",
+    "demo_mode": true
+  },
+  "simulation": true,
+  "signature": "sha256:0ddc09334528f87a23c122c06001cedc",
+  "contract_version": "1.0"
+}
