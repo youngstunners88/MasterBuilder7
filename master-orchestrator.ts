@@ -5,30 +5,34 @@
  * Deploys seamlessly to Play Store / App Store
  */
 
-import { spawn } from "bun";
+import { join } from "path";
+
+const ROOT_DIR = process.env.MB7_ROOT || process.cwd();
+const skillPath = (...segments: string[]) => join(ROOT_DIR, "skills", ...segments);
+const agentPath = (...segments: string[]) => join(ROOT_DIR, "agents", ...segments);
 
 // All 12 AI Skills from RobeetsDay
 const SKILLS = {
   // Immediate (1-3 months)
   immediate: {
-    "predictive-context-loader": "/home/teacherchris37/MasterBuilder7/skills/immediate/predictive-context-loader",
-    "semantic-code-search": "/home/teacherchris37/MasterBuilder7/skills/immediate/semantic-code-search",
-    "auto-documentation": "/home/teacherchris37/MasterBuilder7/skills/immediate/auto-documentation",
-    "self-healing-tests": "/home/teacherchris37/MasterBuilder7/skills/immediate/self-healing-tests"
+    "predictive-context-loader": skillPath("immediate", "predictive-context-loader"),
+    "semantic-code-search": skillPath("immediate", "semantic-code-search"),
+    "auto-documentation": skillPath("immediate", "auto-documentation"),
+    "self-healing-tests": skillPath("immediate", "self-healing-tests")
   },
   // Medium-term (3-6 months)
   mediumTerm: {
-    "multi-repo-intelligence": "/home/teacherchris37/MasterBuilder7/skills/medium-term/skill5-multi-repo-intelligence",
-    "visual-architecture": "/home/teacherchris37/MasterBuilder7/skills/medium-term/skill6-visual-architecture",
-    "security-oracle": "/home/teacherchris37/MasterBuilder7/skills/medium-term/skill7-security-oracle",
-    "performance-prophet": "/home/teacherchris37/MasterBuilder7/skills/medium-term/skill8-performance-prophet"
+    "multi-repo-intelligence": skillPath("medium-term", "skill5-multi-repo-intelligence"),
+    "visual-architecture": skillPath("medium-term", "skill6-visual-architecture"),
+    "security-oracle": skillPath("medium-term", "skill7-security-oracle"),
+    "performance-prophet": skillPath("medium-term", "skill8-performance-prophet")
   },
   // Long-term (6-12 months)
   longTerm: {
-    "speech-to-code": "/home/teacherchris37/MasterBuilder7/skills/long-term/speech-to-code",
-    "autonomous-refactor": "/home/teacherchris37/MasterBuilder7/skills/long-term/autonomous-refactor",
-    "polyglot": "/home/teacherchris37/MasterBuilder7/skills/long-term/polyglot",
-    "business-logic-extractor": "/home/teacherchris37/MasterBuilder7/skills/long-term/business-logic-extractor"
+    "speech-to-code": skillPath("long-term", "speech-to-code"),
+    "autonomous-refactor": skillPath("long-term", "autonomous-refactor"),
+    "polyglot": skillPath("long-term", "polyglot"),
+    "business-logic-extractor": skillPath("long-term", "business-logic-extractor")
   }
 };
 
@@ -36,32 +40,32 @@ const SKILLS = {
 const AGENTS = {
   architect: {
     name: "Architect",
-    path: "/home/teacherchris37/MasterBuilder7/agents/architect",
+    path: agentPath("architect"),
     role: "planning"
   },
   implementer: {
     name: "Implementer",
-    path: "/home/teacherchris37/MasterBuilder7/agents/implementer",
+    path: agentPath("implementer"),
     role: "building"
   },
   nduna: {
     name: "Nduna",
-    path: "/home/teacherchris37/MasterBuilder7/agents/nduna",
+    path: agentPath("nduna"),
     role: "support"
   },
   testEngineer: {
     name: "TestEngineer",
-    path: "/home/teacherchris37/MasterBuilder7/agents/test-engineer",
+    path: agentPath("test-engineer"),
     role: "testing"
   },
   security: {
     name: "Security",
-    path: "/home/teacherchris37/MasterBuilder7/agents/security",
+    path: agentPath("security"),
     role: "guardian"
   },
   subatomic: {
     name: "Subatomic",
-    path: "/home/teacherchris37/MasterBuilder7/agents/subatomic",
+    path: agentPath("subatomic"),
     role: "optimization"
   }
 };

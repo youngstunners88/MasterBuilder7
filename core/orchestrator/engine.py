@@ -56,6 +56,12 @@ class Agent:
     failed_tasks: int = 0
 
 
+DEFAULT_DB_PATH = os.getenv(
+    "APEX_ORCHESTRATOR_DB_PATH",
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), "orchestrator.db")
+)
+
+
 class AgentOrchestrator:
     """
     Central orchestrator for 8 specialist agents
@@ -67,7 +73,7 @@ class AgentOrchestrator:
     - Continuous evolution
     """
     
-    def __init__(self, db_path: str = "/home/teacherchris37/MasterBuilder7/core/orchestrator.db"):
+    def __init__(self, db_path: str = DEFAULT_DB_PATH):
         self.db_path = db_path
         self.agents: Dict[str, Agent] = {}
         self.task_queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
