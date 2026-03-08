@@ -174,23 +174,79 @@ class GooglePlayDeployRequest(BaseModel):
     
     @validator('aab_path')
     def validate_aab_path(cls, v):
-        """Prevent path traversal attacks"""
+        """
+        Prevent path traversal attacks
+        
+        SECURITY: Protects against:
+        - Path traversal (../, ..\\)
+        - URL encoding attacks (%2e%2e%2f)
+        - Null byte injection (%00, \x00)
+        - Absolute paths (/etc/passwd, C:\\windows)
+        - Double encoding (%%32%65)
+        - Command injection in filenames
+        - Invalid file extensions
+        """
+        import urllib.parse
+        
+        # Check for null bytes (null byte injection)
+        if '\x00' in v or '%00' in v:
+            raise ValueError("Null byte detected in path")
+        
+        # Check for control characters
+        for i, char in enumerate(v):
+            if ord(char) < 32:  # Control characters
+                raise ValueError(f"Control character detected in path")
+        
+        # URL-decode multiple times to catch double encoding
+        decoded = v
+        for _ in range(3):  # Decode up to 3 times for double/triple encoding
+            new_decoded = urllib.parse.unquote(decoded)
+            if new_decoded == decoded:
+                break
+            decoded = new_decoded
+        
         # Normalize path
-        path = os.path.normpath(v)
+        path = os.path.normpath(decoded)
         
-        # Check for path traversal
-        if '..' in path or path.startswith('/') or path.startswith('\\'):
-            raise ValueError("Invalid path: absolute paths not allowed")
+        # Check for path traversal after decoding
+        if '..' in path:
+            raise ValueError("Path traversal detected (..)")
+        if path.startswith('/') or path.startswith('\\'):
+            raise ValueError("Absolute paths not allowed")
         if path.startswith('~'):
-            raise ValueError("Invalid path: home directory references not allowed")
+            raise ValueError("Home directory references not allowed")
         
-        # Must be .aab file
-        if not path.endswith('.aab'):
-            raise ValueError("File must be an Android App Bundle (.aab)")
+        # Additional check: ensure no encoded traversal remains
+        if '%2e' in v.lower() or '%252e' in v.lower():
+            raise ValueError("Encoded path traversal detected")
+        
+        # Validate filename (last component)
+        filename = os.path.basename(path)
+        
+        # Check for command injection characters in filename
+        dangerous_chars = [';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>']
+        for char in dangerous_chars:
+            if char in filename:
+                raise ValueError(f"Dangerous character in filename")
+        
+        # Validate .aab extension (case-sensitive)
+        if not filename.endswith('.aab'):
+            raise ValueError("File must have .aab extension")
+        
+        # Check for double extensions (e.g., app.aab.exe)
+        name_part = filename[:-4]  # Remove .aab
+        if '.' in name_part:
+            raise ValueError("Invalid double extension in filename")
         
         # Whitelist allowed directories
         allowed_dirs = ['artifacts', 'build', 'dist', 'output', 'releases']
-        if not any(path.startswith(d) for d in allowed_dirs):
+        allowed = False
+        for allowed_dir in allowed_dirs:
+            if path.startswith(allowed_dir + os.sep) or path == allowed_dir:
+                allowed = True
+                break
+        
+        if not allowed:
             raise ValueError(f"Path must be in allowed directories: {allowed_dirs}")
         
         return path

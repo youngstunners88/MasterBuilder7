@@ -182,23 +182,83 @@ class InputValidator:
     
     @classmethod
     def validate_path(cls, path: str, must_exist: bool = True) -> str:
-        """Validate and sanitize file path"""
+        """
+        Validate and sanitize file path
+        
+        SECURITY: Protects against:
+        - Path traversal (../, ..\\)
+        - URL encoding attacks (%2e%2e%2f)
+        - Null byte injection (%00, \x00)
+        - Absolute paths (/etc/passwd, C:\\windows)
+        - Double encoding (%%32%65)
+        - Command injection in filenames
+        - Invalid file extensions
+        """
+        import urllib.parse
+        
+        # Check for null bytes (null byte injection)
+        if '\x00' in path or '%00' in path:
+            raise ValueError("Invalid path: null byte detected")
+        
+        # Check for control characters
+        for i, char in enumerate(path):
+            if ord(char) < 32:  # Control characters
+                raise ValueError("Invalid path: control character detected")
+        
+        # URL-decode multiple times to catch double encoding
+        decoded = path
+        for _ in range(3):  # Decode up to 3 times for double/triple encoding
+            new_decoded = urllib.parse.unquote(decoded)
+            if new_decoded == decoded:
+                break
+            decoded = new_decoded
+        
         # Normalize path
-        normalized = os.path.normpath(path)
+        normalized = os.path.normpath(decoded)
         
-        # Check for path traversal
-        if cls.PATH_TRAVERSAL_PATTERN.search(normalized):
-            raise ValueError(f"Path traversal detected: {path}")
+        # Check for path traversal after decoding
+        if '..' in normalized:
+            raise ValueError("Invalid path: path traversal detected")
+        if normalized.startswith('/') or normalized.startswith('\\'):
+            raise ValueError("Invalid path: absolute paths not allowed")
+        if normalized.startswith('~'):
+            raise ValueError("Invalid path: home directory references not allowed")
         
-        # Check allowed directories
-        if not any(normalized.startswith(d) for d in SecurityConfig.ALLOWED_PATHS):
-            raise ValueError(
-                f"Path must be in allowed directories: {SecurityConfig.ALLOWED_PATHS}"
-            )
+        # Additional check: ensure no encoded traversal remains
+        if '%2e' in path.lower() or '%252e' in path.lower():
+            raise ValueError("Invalid path: encoded traversal detected")
+        
+        # Validate filename (last component)
+        filename = os.path.basename(normalized)
+        
+        # Check for command injection characters in filename
+        dangerous_chars = [';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>']
+        for char in dangerous_chars:
+            if char in filename:
+                raise ValueError("Invalid path: dangerous character in filename")
+        
+        # Validate .aab extension (case-sensitive)
+        if not filename.endswith('.aab'):
+            raise ValueError("Invalid path: file must have .aab extension")
+        
+        # Check for double extensions (e.g., app.aab.exe)
+        name_part = filename[:-4]  # Remove .aab
+        if '.' in name_part:
+            raise ValueError("Invalid path: double extension not allowed")
+        
+        # Check allowed directories - must START with allowed directory
+        allowed = False
+        for allowed_dir in SecurityConfig.ALLOWED_PATHS:
+            if normalized.startswith(allowed_dir + os.sep) or normalized == allowed_dir:
+                allowed = True
+                break
+        
+        if not allowed:
+            raise ValueError("Invalid path: not in allowed directories")
         
         # Verify existence if required
         if must_exist and not os.path.exists(normalized):
-            raise FileNotFoundError(f"File not found: {normalized}")
+            raise FileNotFoundError("File not found")
         
         return normalized
     
@@ -213,8 +273,20 @@ class InputValidator:
     @classmethod
     def validate_version_code(cls, version_code: str) -> int:
         """Validate version code"""
+        if not isinstance(version_code, str):
+            raise ValueError("Version code must be a string")
+        
+        # Strip whitespace and validate no extra chars
+        stripped = version_code.strip()
+        if stripped != version_code:
+            raise ValueError("Version code cannot have leading/trailing whitespace")
+        
+        # Must be all digits
+        if not stripped.isdigit():
+            raise ValueError("Version code must contain only digits")
+        
         try:
-            code = int(version_code)
+            code = int(stripped)
             if code < 1:
                 raise ValueError("Version code must be positive")
             if code > 999999999:
@@ -355,6 +427,35 @@ class AABValidator:
                     sha256=sha256_hash,
                     errors=["Invalid AAB file: not a valid ZIP archive"]
                 )
+            
+            # Check for ZIP bomb (high compression ratio)
+            with zipfile.ZipFile(validated_path, 'r') as zf:
+                total_uncompressed = sum(info.file_size for info in zf.infolist())
+                total_compressed = sum(info.compress_size for info in zf.infolist())
+                
+                if total_compressed > 0:
+                    ratio = total_uncompressed / total_compressed
+                    if ratio > 100:  # Suspicious compression ratio
+                        return AABValidationResult(
+                            valid=False,
+                            path=validated_path,
+                            size_bytes=size_bytes,
+                            size_mb=round(size_bytes / (1024 * 1024), 2),
+                            sha256=sha256_hash,
+                            errors=[f"Potential ZIP bomb detected: compression ratio {ratio:.1f}x exceeds maximum (100x)"]
+                        )
+                    
+                    # Also check total uncompressed size
+                    if total_uncompressed > SecurityConfig.MAX_EXTRACT_SIZE:
+                        return AABValidationResult(
+                            valid=False,
+                            path=validated_path,
+                            size_bytes=size_bytes,
+                            size_mb=round(size_bytes / (1024 * 1024), 2),
+                            sha256=sha256_hash,
+                            errors=[f"AAB would extract to {total_uncompressed} bytes, exceeding maximum"]
+                        )
+                        
         except Exception as e:
             return AABValidationResult(
                 valid=False,
