@@ -411,12 +411,13 @@ if FASTAPI_AVAILABLE:
     
     # Add middleware
     app.add_middleware(GZipMiddleware, minimum_size=1000)
+    cors_origins = [o.strip() for o in os.getenv("APEX_CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",") if o.strip()]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=os.getenv("APEX_CORS_ORIGINS", "*").split(","),
+        allow_origins=cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Request-ID"],
     )
 
     # =========================================================================
@@ -1304,7 +1305,14 @@ if CLICK_AVAILABLE:
         if demo:
             os.environ["APEX_DEMO_MODE"] = "true"
             apex_state.demo_mode = True
-        
+
+        config_status = APEXConfig.validate()
+        if not config_status["valid"]:
+            secho("❌ Configuration validation failed", fg="red", bold=True)
+            click.echo(f"Missing required environment variables: {', '.join(config_status['missing'])}")
+            click.echo("Tip: set APEX_DEMO_MODE=true for local demo runs.")
+            sys.exit(1)
+
         secho("🚀 Starting APEX API Server", fg="cyan", bold=True)
         click.echo(f"Host: {host}")
         click.echo(f"Port: {port}")
