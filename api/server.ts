@@ -26,6 +26,8 @@ const PORT = parseInt(process.env.PORT || "4200", 10);
 const PUBLIC_HOST = process.env.PUBLIC_HOST || "127.0.0.1";
 const KIMI_ID = process.env.KIMI_ID || "kimi-cli-local";
 const API_KEY = process.env.APEX_API_KEY;
+const REQUIRE_API_KEY = (process.env.REQUIRE_API_KEY || "true").toLowerCase() === "true";
+const DEMO_MODE = (process.env.APEX_DEMO_MODE || "false").toLowerCase() === "true";
 const ELITE_BRIDGE_URL = process.env.ELITE_BRIDGE_URL || "http://100.127.121.51:4200";
 const MCP_INVOKE_URL = process.env.MCP_INVOKE_URL || "";
 const TASK_TTL_MS = parseInt(process.env.TASK_TTL_MS || `${60 * 60 * 1000}`, 10);
@@ -80,7 +82,8 @@ const jsonResponse = (payload: Record<string, unknown>, request: Request, status
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-Kimi-ID, X-API-Key, X-Idempotency-Key",
     "Content-Type": "application/json",
-    "Vary": "Origin"
+    "Vary": "Origin",
+    "Cache-Control": "no-store"
   };
 
   if (origin) headers["Access-Control-Allow-Origin"] = origin;
@@ -89,7 +92,9 @@ const jsonResponse = (payload: Record<string, unknown>, request: Request, status
 };
 
 const isAuthorized = (request: Request): boolean => {
-  if (!API_KEY) return true;
+  if (DEMO_MODE) return true;
+  if (!REQUIRE_API_KEY) return true;
+  if (!API_KEY) return false;
   return request.headers.get("x-api-key") === API_KEY;
 };
 
@@ -149,7 +154,8 @@ const server = serve({
         timestamp: new Date().toISOString(),
         agents: Object.keys(agentStatus).length,
         version: "1.2.0",
-        mcp_integration: MCP_INVOKE_URL ? "configured" : "not_configured"
+        mcp_integration: MCP_INVOKE_URL ? "configured" : "not_configured",
+        auth_mode: DEMO_MODE ? "demo" : (REQUIRE_API_KEY ? "api_key_required" : "open")
       }, request);
     }
 
@@ -161,7 +167,7 @@ const server = serve({
         total_completed: Object.values(agentStatus).reduce((sum, a) => sum + a.tasks_completed, 0),
         uptime: process.uptime(),
         timestamp: new Date().toISOString(),
-        demo_mode: process.env.APEX_DEMO_MODE === "true"
+        demo_mode: DEMO_MODE
       }, request);
     }
 

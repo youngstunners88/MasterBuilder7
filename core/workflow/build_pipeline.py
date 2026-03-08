@@ -52,6 +52,7 @@ class BuildContext:
     started_at: datetime = field(default_factory=datetime.now)
     completed_at: Optional[datetime] = None
     errors: List[str] = field(default_factory=list)
+    simulation_mode: bool = True
 
 
 class BuildPipeline:
@@ -79,8 +80,10 @@ class BuildPipeline:
         context = BuildContext(
             project_name=project_name,
             repo_url="",
-            repo_path=repo_path
+            repo_path=repo_path,
+            simulation_mode=os.getenv("APEX_DEMO_MODE", "true").lower() == "true"
         )
+
         self.active_builds[build_id] = context
         
         print(f"\n🚀 Starting APEX Build: {project_name}")
@@ -88,6 +91,9 @@ class BuildPipeline:
         print("=" * 60)
         
         try:
+            if not os.path.isdir(repo_path):
+                raise ValueError(f"Repository path does not exist or is not a directory: {repo_path}")
+
             # Stage 1: Meta-Router Analysis
             await self._stage_analyze(build_id, context)
             
@@ -134,7 +140,8 @@ class BuildPipeline:
             "stack": "capacitor-react-fastapi",
             "automation_potential": 0.70,
             "complexity": "moderate",
-            "agents_needed": ["planning", "frontend", "backend", "testing", "devops"]
+            "agents_needed": ["planning", "frontend", "backend", "testing", "devops"],
+            "simulation": context.simulation_mode
         }
         
         print(f"   ✓ Stack detected: {context.stack_analysis['stack']}")
@@ -165,7 +172,8 @@ class BuildPipeline:
             },
             "architecture_diagram": "generated",
             "api_spec": "openapi-3.0",
-            "database_schema": "designed"
+            "database_schema": "designed",
+            "simulation": context.simulation_mode
         }
         
         print(f"   ✓ Architecture plan created")
@@ -180,13 +188,15 @@ class BuildPipeline:
         context.frontend_code = {
             "files_generated": 25,
             "components": ["Login", "Dashboard", "Orders", "Profile"],
-            "tests_included": True
+            "tests_included": True,
+            "simulation": context.simulation_mode
         }
         
         context.backend_code = {
             "files_generated": 15,
             "endpoints": ["/auth", "/api/orders", "/api/users", "/webhooks"],
-            "tests_included": True
+            "tests_included": True,
+            "simulation": context.simulation_mode
         }
         
         print(f"   ✓ Frontend: {context.frontend_code['files_generated']} files")
@@ -202,7 +212,8 @@ class BuildPipeline:
             "unit_tests": {"passed": 45, "failed": 0, "coverage": 87},
             "integration_tests": {"passed": 12, "failed": 0},
             "e2e_tests": {"passed": 8, "failed": 0},
-            "security_scan": {"issues": 0, "severity": "none"}
+            "security_scan": {"issues": 0, "severity": "none"},
+            "simulation": context.simulation_mode
         }
         
         print(f"   ✓ Unit tests: {context.test_results['unit_tests']['passed']} passed")
@@ -219,7 +230,8 @@ class BuildPipeline:
             "backend_url": f"https://{context.project_name.lower()}-api.up.railway.app",
             "mobile_build": "ihhashi-release.aab",
             "deployment_time": "3m 42s",
-            "status": "success"
+            "status": "success",
+            "simulation": context.simulation_mode
         }
         
         print(f"   ✓ Frontend: {context.deployment_result['frontend_url']}")
@@ -235,7 +247,8 @@ class BuildPipeline:
             "health_checks": {"passed": 5, "failed": 0},
             "ssl_valid": True,
             "response_times": {"frontend": "45ms", "backend": "120ms"},
-            "verification_status": "PASSED"
+            "verification_status": "PASSED",
+            "simulation": context.simulation_mode
         }
         
         print(f"   ✓ Health checks: {context.verification_result['health_checks']['passed']} passed")
@@ -259,7 +272,8 @@ class BuildPipeline:
             "pattern_extracted": {
                 "name": "capacitor_fastapi_pattern",
                 "applicable_to": ["mobile_apps", "hybrid_apps"]
-            }
+            },
+            "simulation": context.simulation_mode
         }
         
         print(f"   ✓ Optimizations: {len(context.evolution_suggestions['optimizations'])} found")
@@ -272,6 +286,7 @@ class BuildPipeline:
         return {
             "build_id": build_id,
             "status": "success",
+            "simulation": context.simulation_mode,
             "project": context.project_name,
             "duration_seconds": duration,
             "duration_formatted": f"{duration//60:.0f}m {duration%60:.0f}s",
@@ -286,6 +301,7 @@ class BuildPipeline:
             },
             "improvements": context.evolution_suggestions['optimizations'],
             "next_steps": [
+                "Replace simulation stages with real adapters before production",
                 "Monitor deployment metrics",
                 "Apply evolution suggestions",
                 "Schedule security review"
@@ -297,6 +313,7 @@ class BuildPipeline:
         return {
             "build_id": build_id,
             "status": "failed",
+            "simulation": context.simulation_mode,
             "project": context.project_name,
             "error": str(error),
             "errors": context.errors,
@@ -327,7 +344,7 @@ if __name__ == "__main__":
         
         result = await pipeline.execute_build(
             project_name="iHhashi",
-            repo_path="/home/teacherchris37"
+            repo_path=os.getcwd()
         )
         
         print("\n" + "=" * 60)
