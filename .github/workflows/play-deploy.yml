@@ -1,0 +1,127 @@
+name: Play Store Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to deploy'
+        required: true
+        default: 'android'
+        type: choice
+        options:
+          - android
+          - ios
+          - all
+      track:
+        description: 'Release track'
+        required: true
+        default: 'internal'
+        type: choice
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+      version_code:
+        description: 'Version code (integer)'
+        required: true
+        type: number
+      version_name:
+        description: 'Version name (e.g., 1.0.0)'
+        required: true
+        type: string
+      repo:
+        description: 'Repository name'
+        required: true
+        default: 'iHhashi'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: youngstunners88/${{ github.event.inputs.repo }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Android (Capacitor)
+        if: github.event.inputs.platform == 'android' || github.event.inputs.platform == 'all'
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          # Decode keystore
+          echo "$ANDROID_KEYSTORE" | base64 -d > android/app/keystore.jks
+          
+          # Build release AAB
+          cd android
+          ./gradlew bundleRelease \
+            -Pandroid.injected.signing.store.file=app/keystore.jks \
+            -Pandroid.injected.signing.store.password=$ANDROID_KEYSTORE_PASSWORD \
+            -Pandroid.injected.signing.key.alias=$ANDROID_KEY_ALIAS \
+            -Pandroid.injected.signing.key.password=$ANDROID_KEY_PASSWORD
+          
+          # Upload to Play Store via API
+          pip install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
+          python3 -c "
+          from deploy.store_deploy import MasterDeployer, DeploymentConfig
+          import os
+          import json
+          
+          deployer = MasterDeployer()
+          config = DeploymentConfig(
+              repo_path='.',
+              package_name='com.ihhashi.app',
+              version_code=${{ github.event.inputs.version_code }},
+              version_name='${{ github.event.inputs.version_name }}',
+              track='${{ github.event.inputs.track }}',
+              aab_path='android/app/build/outputs/bundle/release/app-release.aab'
+          )
+          
+          result = deployer.deploy_android(config)
+          print(json.dumps(result, indent=2))
+          "
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-outputs
+          path: |
+            android/app/build/outputs/bundle/release/*.aab
+            ios/App.ipa
+
+      - name: Notify on Success
+        if: success()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "✅ iHhashi deployed to ${{ github.event.inputs.track }} track (v${{ github.event.inputs.version_name }})"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify on Failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "❌ iHhashi deployment FAILED (v${{ github.event.inputs.version_name }}). Check logs."
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

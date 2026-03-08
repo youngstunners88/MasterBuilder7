@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MasterBuilder7 Dashboard</title>
+    <style>
+        body { font-family: sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .header { background: #1a1a2e; color: white; padding: 20px; border-radius: 8px; }
+        .card { background: #f0f0f0; padding: 15px; margin: 10px 0; border-radius: 8px; }
+        .btn { background: #4CAF50; color: white; padding: 10px 20px; border: none; cursor: pointer; }
+        .btn-danger { background: #f44336; }
+        .status { display: inline-block; padding: 5px 10px; border-radius: 4px; }
+        .status-ok { background: #4CAF50; color: white; }
+        .status-pending { background: #ff9800; color: white; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🦀 MasterBuilder7 Sovereign Deployment</h1>
+        <p>Google Play + Apple App Store Direct Upload</p>
+    </div>
+
+    <div class="card">
+        <h2>Deploy iHhashi</h2>
+        <form id="deployForm">
+            <label>Platform:</label>
+            <select id="platform">
+                <option value="android">Android (Google Play)</option>
+                <option value="ios">iOS (App Store)</option>
+                <option value="all">Both</option>
+            </select><br><br>
+            
+            <label>Track:</label>
+            <select id="track">
+                <option value="internal">Internal Testing</option>
+                <option value="alpha">Alpha</option>
+                <option value="beta">Beta</option>
+                <option value="production">Production ⚠️ (Requires Approval)</option>
+            </select><br><br>
+            
+            <label>Version Code:</label>
+            <input type="number" id="versionCode" value="2"><br><br>
+            
+            <label>Version Name:</label>
+            <input type="text" id="versionName" value="1.0.1"><br><br>
+            
+            <button type="submit" class="btn">🚀 Deploy</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Pending Approvals (Kill Switch)</h2>
+        <div id="approvals">Loading...</div>
+    </div>
+
+    <div class="card">
+        <h2>Recent Deployments</h2>
+        <div id="history">Loading...</div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        
+        document.getElementById('deployForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const btn = e.target.querySelector('button');
+            btn.disabled = true;
+            btn.textContent = 'Deploying...';
+            
+            const response = await fetch(`${API_BASE}/deploy`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer YOUR_API_KEY'
+                },
+                body: JSON.stringify({
+                    repo: 'iHhashi',
+                    platform: document.getElementById('platform').value,
+                    track: document.getElementById('track').value,
+                    version_code: parseInt(document.getElementById('versionCode').value),
+                    version_name: document.getElementById('versionName').value
+                })
+            });
+            
+            const result = await response.json();
+            alert(JSON.stringify(result, null, 2));
+            btn.disabled = false;
+            btn.textContent = '🚀 Deploy';
+        };
+        
+        async function loadStatus() {
+            const resp = await fetch(`${API_BASE}/status`);
+            const data = await resp.json();
+            
+            document.getElementById('approvals').innerHTML = 
+                `<span class="status status-pending">${data.pending_approvals} pending</span>`;
+            
+            document.getElementById('history').innerHTML = 
+                data.recent_deployments.map(d => 
+                    `<div>${d.timestamp} - ${d.platform || 'unknown'}: ${d.status}</div>`
+                ).join('');
+        }
+        
+        loadStatus();
+        setInterval(loadStatus, 5000);
+    </script>
+</body>
+</html>
