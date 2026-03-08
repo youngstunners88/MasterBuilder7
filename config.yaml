@@ -1,0 +1,21 @@
+# MasterBuilder7 Configuration
+
+api_keys:
+  render: "${RENDER_API_KEY}"
+  icp_identity: "${DFX_IDENTITY_PATH}"
+  
+defaults:
+  render_plan: "starter"
+  icp_cycles: 2_000_000_000_000
+  
+budgets:
+  daily_limit: 50.0
+  monthly_limit: 1000.0
+  
+notifications:
+  slack_webhook: "${SLACK_WEBHOOK_URL}"
+  
+deployment:
+  parallel: true
+  verify_after_deploy: true
+  auto_rollback_on_failure: true
